@@ -1,0 +1,261 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+
+	"github.com/spf13/cobra"
+	"golang.org/x/term"
+
+	"github.com/velesbsdllc/agent-vbai/internal/auth"
+	"github.com/velesbsdllc/agent-vbai/internal/chat"
+	"github.com/velesbsdllc/agent-vbai/internal/config"
+	// Blank import: registers all locales via init() → i18n.Register(...).
+	_ "github.com/velesbsdllc/agent-vbai/internal/i18n/messages"
+)
+
+// version is overridden at build time via -ldflags "-X main.version=..."
+var version = "dev"
+
+const loginHelp = `Альфа-авторизация: вставьте JWT-токен из активной браузерной сессии ExecAI.
+
+Где взять токен:
+  1. Откройте https://execai.ru (или ваш веб-интерфейс) и залогиньтесь
+     любым способом (Яндекс / ВК / magic-link / пароль).
+  2. Откройте DevTools (F12) → вкладка Application/Storage → Cookies →
+     домен execai.ru. Найдите cookie с токеном (обычно "auth_token" или
+     "token"). Скопируйте его значение.
+  3. Запустите команду login и вставьте токен в скрытый ввод.
+
+Когда в auth-vbai появится Authorization Code Flow с PKCE и
+loopback-redirect, эта команда будет открывать браузер автоматически.`
+
+func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	root := &cobra.Command{
+		Use:           "execai",
+		Short:         "execai — CLI-агент экосистемы ExecAI/VBAI (как Claude Code)",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		// With no arguments, open the TUI chat. Login/logout/config are slash
+		// commands inside the TUI; the subcommands below remain for scripts (CI, curl|bash).
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			if !term.IsTerminal(int(os.Stdout.Fd())) {
+				return chat.RunPlain(cmd.Context(), cfg)
+			}
+			return chat.RunTUI(cmd.Context(), cfg, version)
+		},
+	}
+
+	root.AddCommand(
+		newLoginCmd(),
+		newLogoutCmd(),
+		newWhoamiCmd(),
+		newChatCmd(),
+		newRunCmd(),
+		newConfigCmd(),
+		newVersionCmd(),
+	)
+
+	if err := root.ExecuteContext(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+}
+
+func newLoginCmd() *cobra.Command {
+	var tokenFlag string
+	cmd := &cobra.Command{
+		Use:   "login",
+		Short: "Сохранить JWT-токен (paste из браузерной сессии)",
+		Long:  loginHelp,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+
+			token := strings.TrimSpace(tokenFlag)
+			if token == "" {
+				if !term.IsTerminal(int(os.Stdin.Fd())) {
+					return errors.New("stdin не TTY — передайте токен через --token <jwt>")
+				}
+				fmt.Printf("Вставьте JWT-токен (ввод скрыт), API base: %s\n> ", cfg.APIBase)
+				raw, err := term.ReadPassword(int(os.Stdin.Fd()))
+				fmt.Println()
+				if err != nil {
+					return err
+				}
+				token = strings.TrimSpace(string(raw))
+			}
+
+			cr, err := auth.Login(cmd.Context(), cfg, token)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("OK: вошли как %s, токен сохранён.\n", cr.Email)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&tokenFlag, "token", "", "JWT-токен напрямую (вместо интерактивного ввода)")
+	return cmd
+}
+
+func newLogoutCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "logout",
+		Short: "Удалить сохранённый токен",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := auth.Logout(); err != nil {
+				return err
+			}
+			fmt.Println("OK: токен удалён.")
+			return nil
+		},
+	}
+}
+
+func newWhoamiCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "whoami",
+		Short: "Показать текущего пользователя (проверяет токен)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			cr, err := auth.Require()
+			if err != nil {
+				return err
+			}
+			email, err := auth.Verify(cmd.Context(), cfg.APIBase, cr.Token)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%s @ %s\n", email, cfg.APIBase)
+			return nil
+		},
+	}
+}
+
+func newChatCmd() *cobra.Command {
+	var plain bool
+	cmd := &cobra.Command{
+		Use:   "chat",
+		Short: "Интерактивный чат с агентом (TUI; --plain — простой REPL)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			// If stdout is not a TTY, the TUI is pointless (it cannot render
+			// properly), so fall back to plain without the flag.
+			if plain || !term.IsTerminal(int(os.Stdout.Fd())) {
+				return chat.RunPlain(cmd.Context(), cfg)
+			}
+			return chat.RunTUI(cmd.Context(), cfg, version)
+		},
+	}
+	cmd.Flags().BoolVar(&plain, "plain", false, "Простой REPL вместо TUI")
+	return cmd
+}
+
+func newRunCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "run [prompt]",
+		Short: "Однократный запрос к агенту",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			return chat.Once(cmd.Context(), cfg, strings.Join(args, " "))
+		},
+	}
+}
+
+func newConfigCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "config",
+		Short: "Показать или изменить конфиг",
+	}
+	cmd.AddCommand(
+		&cobra.Command{
+			Use:   "show",
+			Short: "Показать текущий конфиг и пути",
+			RunE: func(cmd *cobra.Command, args []string) error {
+				dir, err := config.Dir()
+				if err != nil {
+					return err
+				}
+				cfg, err := config.Load()
+				if err != nil {
+					return err
+				}
+				fmt.Printf("config dir       : %s\n", dir)
+				fmt.Printf("api_base         : %s\n", cfg.APIBase)
+				if cfg.SelectedModelID != "" {
+					fmt.Printf("selected_model   : %s\n", cfg.SelectedModelID)
+				} else {
+					fmt.Println("selected_model   : (auto — DeepSeek или первая primary)")
+				}
+				cr, _ := config.LoadCredentials()
+				if cr != nil {
+					fmt.Printf("logged in        : %s (saved %s)\n", cr.Email, cr.SavedAt)
+				} else {
+					fmt.Println("logged in        : (not logged in)")
+				}
+				return nil
+			},
+		},
+		&cobra.Command{
+			Use:   "set [key=value...]",
+			Short: "Поставить параметры: api_base, selected_model",
+			Args:  cobra.MinimumNArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				cfg, err := config.Load()
+				if err != nil {
+					return err
+				}
+				for _, kv := range args {
+					parts := strings.SplitN(kv, "=", 2)
+					if len(parts) != 2 {
+						return fmt.Errorf("ожидается key=value, получено %q", kv)
+					}
+					switch parts[0] {
+					case "api_base":
+						cfg.APIBase = parts[1]
+					case "selected_model", "model":
+						cfg.SelectedModelID = parts[1]
+					default:
+						return fmt.Errorf("неизвестный ключ %q (доступно: api_base, selected_model)", parts[0])
+					}
+				}
+				return config.Save(cfg)
+			},
+		},
+	)
+	return cmd
+}
+
+func newVersionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Версия",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println("execai", version)
+		},
+	}
+}
