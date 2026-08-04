@@ -1,15 +1,15 @@
 // Tool-use loop. Architecturally mirrors Claude Code:
 //
-//   user → LLM → (text and/or tool_calls)
-//                           │
-//                           ▼
-//        (if tool_calls) execute locally via Registry
-//                           │
-//                           ▼
-//                  tool results as role:"tool" messages
-//                           │
-//                           ▼
-//                       LLM → ...
+//	user → LLM → (text and/or tool_calls)
+//	                        │
+//	                        ▼
+//	     (if tool_calls) execute locally via Registry
+//	                        │
+//	                        ▼
+//	               tool results as role:"tool" messages
+//	                        │
+//	                        ▼
+//	                    LLM → ...
 //
 // The loop ends when the model returns a response without tool_calls (finish_reason=stop).
 package agent
@@ -29,11 +29,11 @@ import (
 type ApproveDecision int
 
 const (
-	ApproveDeny       ApproveDecision = iota // Deny this call
-	ApproveOnce                              // Allow only this call
-	ApproveTool                              // Allow ALL calls of this tool in the CURRENT session
-	ApproveExactArgs                         // Allow exactly this command in the current session
-	ApproveAlways                            // Allow forever (persisted in permissions.json)
+	ApproveDeny      ApproveDecision = iota // Deny this call
+	ApproveOnce                             // Allow only this call
+	ApproveTool                             // Allow ALL calls of this tool in the CURRENT session
+	ApproveExactArgs                        // Allow exactly this command in the current session
+	ApproveAlways                           // Allow forever (persisted in permissions.json)
 )
 
 // Approver prompts the user to confirm a tool call.
@@ -168,7 +168,7 @@ func (a *Agent) Run(ctx context.Context, history []llm.AIMessage, userMessage st
 	// The user sees the context of the last state and can say 'continue'
 	// to let the task proceed (next 40 iterations).
 	out = append(out, llm.AIMessage{
-		Role: "assistant",
+		Role:    "assistant",
 		Content: i18n.Tf("loop.iterationLimit", a.MaxIterations, a.MaxIterations),
 	})
 	return out, nil

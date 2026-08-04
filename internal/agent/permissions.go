@@ -3,10 +3,11 @@
 // survive CLI restarts.
 //
 // Format:
-//   {
-//     "always_allowed_tools": ["Read", "Bash"],
-//     "always_allowed_exact": ["Bash|{\"command\":\"git status\"}"]
-//   }
+//
+//	{
+//	  "always_allowed_tools": ["Read", "Bash"],
+//	  "always_allowed_exact": ["Bash|{\"command\":\"git status\"}"]
+//	}
 package agent
 
 import (

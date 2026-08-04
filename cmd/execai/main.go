@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -15,6 +16,7 @@ import (
 	"github.com/velesbsdllc/agent-vbai/internal/auth"
 	"github.com/velesbsdllc/agent-vbai/internal/chat"
 	"github.com/velesbsdllc/agent-vbai/internal/config"
+	"github.com/velesbsdllc/agent-vbai/internal/serve"
 	// Blank import: registers all locales via init() → i18n.Register(...).
 	_ "github.com/velesbsdllc/agent-vbai/internal/i18n/messages"
 	// Aliased: the package name would collide with the build-time `version` var.
@@ -70,6 +72,7 @@ func main() {
 		newWhoamiCmd(),
 		newChatCmd(),
 		newRunCmd(),
+		newServeCmd(),
 		newConfigCmd(),
 		newVersionCmd(),
 	)
@@ -190,6 +193,74 @@ func newRunCmd() *cobra.Command {
 			return chat.Once(cmd.Context(), cfg, strings.Join(args, " "))
 		},
 	}
+}
+
+// newServeCmd — фоновый режим: агент слушает задачи из веб-чата.
+//
+// Отдельная команда, а не работа внутри TUI, потому что у инбокса должен быть
+// ровно один владелец: иначе задачи делились бы между чатом и демоном
+// случайным образом, и пользователь не понимал бы, куда ушла задача.
+func newServeCmd() *cobra.Command {
+	var pollWait, taskTimeout time.Duration
+	var maxIter int
+	var readOnly, showStatus, doStop, doForce bool
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Слушать задачи из веб-чата (фоновый режим)",
+		Long: "Агент подключается к инбоксу и выполняет задачи, поставленные из веб-чата.\n\n" +
+			"Задача выполняется в каталоге, привязанном к её проекту (execai → /project bind).\n\n" +
+			"Что разрешено — берётся из твоего ~/.config/execai/permissions.json (то, что ты\n" +
+			"отмечал в чате кнопкой «Всегда»). Остальное отклоняется: рядом нет человека,\n" +
+			"который мог бы подтвердить. Если файл пуст — разрешено всё, и об этом будет\n" +
+			"сказано при старте.\n\n" +
+			"Всё выполненное пишется в ~/.config/execai/serve-audit.log.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Управление демоном не требует ни конфига, ни токена — это
+			// операции над локальным процессом.
+			if showStatus {
+				running, err := serve.Status()
+				if err != nil {
+					return err
+				}
+				if !running {
+					// Ненулевой код, чтобы скрипты могли на это опираться.
+					os.Exit(1)
+				}
+				return nil
+			}
+			if doStop {
+				return serve.Stop(30*time.Second, doForce)
+			}
+			if doForce {
+				return errors.New("--force имеет смысл только вместе с --stop")
+			}
+
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			opts := serve.DefaultOptions()
+			if pollWait > 0 {
+				opts.PollWait = pollWait
+			}
+			if taskTimeout > 0 {
+				opts.TaskTimeout = taskTimeout
+			}
+			if maxIter > 0 {
+				opts.MaxIterations = maxIter
+			}
+			opts.ReadOnly = readOnly
+			return serve.Run(cmd.Context(), cfg, opts)
+		},
+	}
+	cmd.Flags().DurationVar(&pollWait, "poll-wait", 0, "длительность long-poll (по умолчанию 60s)")
+	cmd.Flags().DurationVar(&taskTimeout, "task-timeout", 0, "предел на одну задачу (по умолчанию 5m)")
+	cmd.Flags().IntVar(&maxIter, "max-iterations", 0, "предел итераций инструментов на задачу (по умолчанию 30)")
+	cmd.Flags().BoolVar(&readOnly, "read-only", false, "только чтение: не менять файлы и не запускать команды")
+	cmd.Flags().BoolVar(&showStatus, "status", false, "показать состояние демона и выйти")
+	cmd.Flags().BoolVar(&doStop, "stop", false, "мягко остановить запущенный демон (ждёт завершения текущей задачи)")
+	cmd.Flags().BoolVar(&doForce, "force", false, "с --stop: добить SIGKILL, если не вышел за 5с (результат задачи потеряется)")
+	return cmd
 }
 
 func newConfigCmd() *cobra.Command {

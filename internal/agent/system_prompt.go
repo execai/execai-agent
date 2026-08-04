@@ -113,9 +113,10 @@ func SystemPrompt(cwd string, toolNames []string, memory string) string {
 }
 
 // memoryPaths returns absolute paths for the system prompt.
-//   userDir   — directory with per-fact files
-//   userIndex — index (MEMORY.md, always in context)
-//   project   — project memory (single-file, in CWD)
+//
+//	userDir   — directory with per-fact files
+//	userIndex — index (MEMORY.md, always in context)
+//	project   — project memory (single-file, in CWD)
 func memoryPaths(cwd string) (userDir, userIndex, project string) {
 	if base, err := os.UserConfigDir(); err == nil {
 		userDir = filepath.Join(base, "execai", "memory")

@@ -63,6 +63,12 @@ func (r *Registry) Get(name string) (Tool, bool) {
 	return t, ok
 }
 
+// Unregister removes a tool. Used by the unattended mode: a tool that needs a
+// human on the other end only wastes an iteration there.
+func (r *Registry) Unregister(name string) {
+	delete(r.tools, name)
+}
+
 // Definitions is the list of tool definitions in OpenAI/Anthropic format for
 // sending to the LLM. Sorted by name for prompt stability (cache hits).
 func (r *Registry) Definitions() []ToolDefinition {

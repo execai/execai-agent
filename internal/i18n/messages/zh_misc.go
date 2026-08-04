@@ -169,6 +169,73 @@ var zhMiscMessages = map[string]string{
 	"ask.dismissed":         "交由智能体决定",
 	"ask.dismissedForModel": "用户关闭了问题且未做选择。请自行决定，说明所采用的假设，然后继续。",
 	"subagent.emptyResult":  "子智能体没有返回结果",
+
+	// === /key — ключ шифрования памяти ===
+	"hint.key":  "记忆加密密钥（查看 / 导出 / 导入 / 创建）",
+	"key.usage": "/key — 查看状态 · /key new — 创建 · /key export — 显示私钥 · /key import <密钥> — 安装来自另一台机器的密钥",
+	"key.absent": "尚未创建加密密钥。\n" +
+		"它会在首次同步时自动创建，也可以现在用 /key new 创建。\n" +
+		"位置：%s",
+	"key.present": "加密密钥已就位。\n" +
+		"公钥（可以公开；别人用它为你加密）：\n" +
+		"  %s\n" +
+		"文件：%s",
+	"key.created": "加密密钥已创建。\n" +
+		"公钥：%s\n" +
+		"文件：%s",
+	"key.alreadyExists": "密钥已存在（公钥：%s）。未做替换——那会导致用它加密的一切都无法访问。",
+	"key.noRecoveryWarning": "⚠ 没有找回机制。我们没有你的密钥，将来也不会有。\n" +
+		"一旦丢失，已同步的记忆将无法解读，只能从零重建。\n" +
+		"\n" +
+		"现在就保存一份副本：/key export，并放进密码管理器。\n" +
+		"要在另一台机器上使用同一份记忆，请在那里执行 /key import <密钥>。",
+	"key.exportWarning": "⚠ 下面是你的私钥。持有它的人就能读取你已同步的记忆。不要粘贴到聊天、issue 或截图中。",
+	"key.exportHint":    "公钥部分（这个可以公开）：%s",
+	"key.imported":      "密钥已安装。公钥：%s",
+	"key.importFailed": "无法安装该密钥：%v\n" +
+		"\n" +
+		"如果你想替换已有密钥，请先删除它，但要确认已有副本，\n" +
+		"否则用旧密钥加密的一切都将无法解读：%s",
+	"key.invalid": "这看起来不是私钥（%v）。期望格式：AGE-SECRET-KEY-1…",
+	"key.error":   "密钥操作失败：%v",
+
+	// === /memory — импорт и экспорт памяти ===
+	"hint.memory":            "智能体记忆：从其他智能体导入、导出",
+	"memory.usage":           "/memory — 查看状态 · /memory import — 导入此处其他智能体的记忆 · /memory export [目录] — 以 markdown 导出记忆",
+	"memory.status":          "记忆：%d 条，位于 %s",
+	"memory.foundNearby":     "在此目录发现其他智能体的记忆文件：%d 个",
+	"memory.importHint":      "\n导入它们：/memory import",
+	"memory.nothingToImport": "在 %s 未发现其他智能体的记忆。\n已查找：CLAUDE.md、.claude/、AGENTS.md、.cursorrules、.cursor/rules/、.github/copilot-instructions.md、EXECAI.md",
+	"memory.importQuestion":  "要将 %d 个文件导入智能体记忆吗？",
+	"memory.importYes":       "导入",
+	"memory.importYesDesc":   "内容将成为记忆的一部分，而记忆之后会同步到服务器（用你的密钥加密）",
+	"memory.importNo":        "取消",
+	"memory.importNoDesc":    "不读取、不复制任何内容",
+	"memory.importCancelled": "已取消导入，未复制任何内容。",
+	"memory.imported":        "已导入：%d",
+	"memory.exported":        "已导出 %d 个文件到 %s",
+	"memory.error":           "记忆操作失败：%v",
+
+	// === /project — привязка каталога к проекту ===
+	"hint.project":         "把当前目录绑定到网页聊天中的项目",
+	"project.usage":        "/project — 项目列表 · bind <名称> — 绑定当前目录 · unbind — 解除绑定 · on/off — 在项目中启用/停用代理",
+	"project.listHeader":   "你的项目（● 已绑定到当前目录，○ 绑定在别处）：",
+	"project.listHint":     "绑定：/project bind <名称>",
+	"project.none":         "还没有项目——请在网页聊天中创建。",
+	"project.defaultTag":   "[默认]",
+	"project.bound":        "项目「%s」已绑定到 %s",
+	"project.unbound":      "已解除 %s 的绑定",
+	"project.notBound":     "没有项目绑定到 %s",
+	"project.notFound":     "未找到项目「%s」。可用：%s",
+	"project.needLogin":    "需要 ExecAI 账号 —— /login",
+	"project.error":        "项目操作失败：%v",
+	"project.agentOn":      "[代理已启用]",
+	"project.agentOff":     "[代理已停用]",
+	"project.enabled":      "代理「%s」已在项目「%s」中启用 —— 它会接收该项目的任务",
+	"project.disabled":     "代理「%s」已在项目「%s」中停用 —— 它不会接收该项目的任务",
+	"project.notAgent":     "当前会话不是代理，无内容可添加。请在目标机器上使用 /login 登录。",
+	"project.notInProject": "代理不在项目「%s」中 —— 请先执行 /project bind",
+	"project.boundNoTool":  "目录 %[2]s 已绑定到项目「%[1]s」，但将代理加入项目失败：%[3]v",
 }
 
 func init() {

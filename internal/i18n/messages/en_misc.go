@@ -170,6 +170,73 @@ Tip: Enter — send, Shift+Enter — new line.`,
 	"ask.dismissed":         "left to the agent",
 	"ask.dismissedForModel": "The user dismissed the question without choosing. Decide yourself, state the assumption you made, and continue.",
 	"subagent.emptyResult":  "the subagent returned nothing",
+
+	// === /key — ключ шифрования памяти ===
+	"hint.key":  "memory encryption key (show / export / import / new)",
+	"key.usage": "/key — show status · /key new — create · /key export — show the private key · /key import <key> — install a key from another machine",
+	"key.absent": "No encryption key yet.\n" +
+		"It will be created automatically on the first sync, or now with /key new.\n" +
+		"Location: %s",
+	"key.present": "Encryption key is in place.\n" +
+		"Public key (safe to share, others encrypt FOR you with it):\n" +
+		"  %s\n" +
+		"File: %s",
+	"key.created": "Encryption key created.\n" +
+		"Public key: %s\n" +
+		"File: %s",
+	"key.alreadyExists": "A key already exists (public: %s). It was NOT replaced — that would lose access to everything encrypted with it.",
+	"key.noRecoveryWarning": "⚠ There is no recovery. We do not have your key and never will.\n" +
+		"Lose it and the synced memory becomes unreadable — it can only be rebuilt from scratch.\n" +
+		"\n" +
+		"Save a copy now: /key export, then put it in a password manager.\n" +
+		"To use the same memory on another machine, run /key import <key> there.",
+	"key.exportWarning": "⚠ Below is your PRIVATE key. Anyone holding it can read your synced memory. Do not paste it into chats, issues or screenshots.",
+	"key.exportHint":    "Public part (this one is safe to share): %s",
+	"key.imported":      "Key installed. Public: %s",
+	"key.importFailed": "Could not install the key: %v\n" +
+		"\n" +
+		"If you meant to replace an existing key, delete it first — but make sure you have\n" +
+		"a copy, otherwise everything encrypted with the old key becomes unreadable: %s",
+	"key.invalid": "That does not look like a private key (%v). Expected format: AGE-SECRET-KEY-1…",
+	"key.error":   "Key operation failed: %v",
+
+	// === /memory — импорт и экспорт памяти ===
+	"hint.memory":            "agent memory: import from other agents, export",
+	"memory.usage":           "/memory — status · /memory import — pull in memory from other agents found here · /memory export [dir] — dump memory as markdown",
+	"memory.status":          "Memory: %d entries in %s",
+	"memory.foundNearby":     "Found %d file(s) of other agents' memory in this directory:",
+	"memory.importHint":      "\nRun /memory import to pull them in.",
+	"memory.nothingToImport": "No memory files of other agents found in %s.\nLooked for: CLAUDE.md, .claude/, AGENTS.md, .cursorrules, .cursor/rules/, .github/copilot-instructions.md, EXECAI.md",
+	"memory.importQuestion":  "Import %d file(s) into the agent's memory?",
+	"memory.importYes":       "Import",
+	"memory.importYesDesc":   "Contents become part of memory — and memory is later synced to the server (encrypted with your key)",
+	"memory.importNo":        "Cancel",
+	"memory.importNoDesc":    "Nothing is read or copied",
+	"memory.importCancelled": "Import cancelled — nothing was copied.",
+	"memory.imported":        "Imported: %d",
+	"memory.exported":        "Exported %d file(s) to %s",
+	"memory.error":           "Memory operation failed: %v",
+
+	// === /project — привязка каталога к проекту ===
+	"hint.project":         "bind this directory to a project from the web chat",
+	"project.usage":        "/project — list projects · bind <name> — bind this directory · unbind — unbind · on/off — enable/disable the agent in the project",
+	"project.listHeader":   "Your projects (● bound to this directory, ○ bound elsewhere):",
+	"project.listHint":     "Bind: /project bind <name>",
+	"project.none":         "You have no projects yet — create one in the web chat.",
+	"project.defaultTag":   "[default]",
+	"project.bound":        "Project «%s» bound to %s",
+	"project.unbound":      "Binding removed from %s",
+	"project.notBound":     "No project is bound to %s",
+	"project.notFound":     "Project «%s» not found. Available: %s",
+	"project.needLogin":    "an ExecAI account is required — /login",
+	"project.error":        "Project operation failed: %v",
+	"project.agentOn":      "[agent on]",
+	"project.agentOff":     "[agent OFF]",
+	"project.enabled":      "Agent «%s» enabled in project «%s» — it will pick up tasks from there",
+	"project.disabled":     "Agent «%s» disabled in project «%s» — it will not pick up tasks from there",
+	"project.notAgent":     "This session is not an agent, so there is nothing to add. Log in with /login on the machine itself.",
+	"project.notInProject": "The agent is not part of project «%s» — run /project bind first",
+	"project.boundNoTool":  "Directory %[2]s is bound to project «%[1]s», but adding the agent to the project failed: %[3]v",
 }
 
 func init() {

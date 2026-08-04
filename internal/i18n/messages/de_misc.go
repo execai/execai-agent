@@ -169,6 +169,73 @@ Tipp: Enter — senden, Shift+Enter — Zeilenumbruch.`,
 	"ask.dismissed":         "dem Agenten überlassen",
 	"ask.dismissedForModel": "Der Nutzer hat die Frage ohne Auswahl geschlossen. Entscheide selbst, nenne die getroffene Annahme und mach weiter.",
 	"subagent.emptyResult":  "der Subagent lieferte kein Ergebnis",
+
+	// === /key — ключ шифрования памяти ===
+	"hint.key":  "Schlüssel zur Speicher-Verschlüsselung (anzeigen / exportieren / importieren / erstellen)",
+	"key.usage": "/key — Status · /key new — erstellen · /key export — privaten Schlüssel anzeigen · /key import <Schlüssel> — Schlüssel von einem anderen Rechner einsetzen",
+	"key.absent": "Noch kein Verschlüsselungsschlüssel vorhanden.\n" +
+		"Er wird beim ersten Sync automatisch erstellt — oder jetzt mit /key new.\n" +
+		"Ort: %s",
+	"key.present": "Verschlüsselungsschlüssel ist vorhanden.\n" +
+		"Öffentlicher Schlüssel (darf geteilt werden; damit wird FÜR dich verschlüsselt):\n" +
+		"  %s\n" +
+		"Datei: %s",
+	"key.created": "Verschlüsselungsschlüssel erstellt.\n" +
+		"Öffentlicher Schlüssel: %s\n" +
+		"Datei: %s",
+	"key.alreadyExists": "Es existiert bereits ein Schlüssel (öffentlich: %s). Er wurde NICHT ersetzt — das hieße, den Zugriff auf alles damit Verschlüsselte zu verlieren.",
+	"key.noRecoveryWarning": "⚠ Es gibt keine Wiederherstellung. Wir haben deinen Schlüssel nicht und werden ihn nie haben.\n" +
+		"Geht er verloren, ist der synchronisierte Speicher unlesbar — er lässt sich nur neu aufbauen.\n" +
+		"\n" +
+		"Sichere jetzt eine Kopie: /key export, und leg sie in einen Passwortmanager.\n" +
+		"Für denselben Speicher auf einem anderen Rechner dort /key import <Schlüssel> ausführen.",
+	"key.exportWarning": "⚠ Unten steht dein PRIVATER Schlüssel. Wer ihn hat, liest deinen synchronisierten Speicher. Nicht in Chats, Issues oder Screenshots einfügen.",
+	"key.exportHint":    "Öffentlicher Teil (der darf geteilt werden): %s",
+	"key.imported":      "Schlüssel eingesetzt. Öffentlich: %s",
+	"key.importFailed": "Schlüssel konnte nicht eingesetzt werden: %v\n" +
+		"\n" +
+		"Wolltest du einen vorhandenen ersetzen, lösche ihn zuerst — aber stelle sicher,\n" +
+		"dass du eine Kopie hast, sonst wird alles mit dem alten Schlüssel Verschlüsselte unlesbar: %s",
+	"key.invalid": "Das sieht nicht nach einem privaten Schlüssel aus (%v). Erwartetes Format: AGE-SECRET-KEY-1…",
+	"key.error":   "Schlüssel-Operation fehlgeschlagen: %v",
+
+	// === /memory — импорт и экспорт памяти ===
+	"hint.memory":            "Agenten-Speicher: von anderen Agenten importieren, exportieren",
+	"memory.usage":           "/memory — Status · /memory import — Speicher anderer Agenten übernehmen · /memory export [Verzeichnis] — Speicher als Markdown ausgeben",
+	"memory.status":          "Speicher: %d Einträge in %s",
+	"memory.foundNearby":     "Hier gefundene Speicherdateien anderer Agenten: %d",
+	"memory.importHint":      "\nÜbernehmen mit: /memory import",
+	"memory.nothingToImport": "In %s wurde kein Speicher anderer Agenten gefunden.\nGesucht: CLAUDE.md, .claude/, AGENTS.md, .cursorrules, .cursor/rules/, .github/copilot-instructions.md, EXECAI.md",
+	"memory.importQuestion":  "%d Datei(en) in den Speicher des Agenten importieren?",
+	"memory.importYes":       "Importieren",
+	"memory.importYesDesc":   "Der Inhalt wird Teil des Speichers — und der wird später zum Server synchronisiert (mit deinem Schlüssel verschlüsselt)",
+	"memory.importNo":        "Abbrechen",
+	"memory.importNoDesc":    "Es wird nichts gelesen oder kopiert",
+	"memory.importCancelled": "Import abgebrochen — nichts wurde kopiert.",
+	"memory.imported":        "Importiert: %d",
+	"memory.exported":        "%d Datei(en) exportiert nach %s",
+	"memory.error":           "Speicher-Operation fehlgeschlagen: %v",
+
+	// === /project — привязка каталога к проекту ===
+	"hint.project":         "dieses Verzeichnis mit einem Projekt aus dem Web-Chat verbinden",
+	"project.usage":        "/project — Projektliste · bind <Name> — dieses Verzeichnis verbinden · unbind — trennen · on/off — Agent im Projekt aktivieren/deaktivieren",
+	"project.listHeader":   "Deine Projekte (● mit diesem Verzeichnis verbunden, ○ anderswo verbunden):",
+	"project.listHint":     "Verbinden: /project bind <Name>",
+	"project.none":         "Noch keine Projekte — lege eines im Web-Chat an.",
+	"project.defaultTag":   "[Standard]",
+	"project.bound":        "Projekt «%s» mit %s verbunden",
+	"project.unbound":      "Verbindung von %s gelöst",
+	"project.notBound":     "Mit %s ist kein Projekt verbunden",
+	"project.notFound":     "Projekt «%s» nicht gefunden. Verfügbar: %s",
+	"project.needLogin":    "ein ExecAI-Konto ist erforderlich — /login",
+	"project.error":        "Projekt-Operation fehlgeschlagen: %v",
+	"project.agentOn":      "[Agent an]",
+	"project.agentOff":     "[Agent AUS]",
+	"project.enabled":      "Agent «%s» im Projekt «%s» aktiviert — er übernimmt Aufgaben von dort",
+	"project.disabled":     "Agent «%s» im Projekt «%s» deaktiviert — er übernimmt keine Aufgaben von dort",
+	"project.notAgent":     "Diese Sitzung ist kein Agent, es gibt nichts hinzuzufügen. Melde dich mit /login auf dem Rechner selbst an.",
+	"project.notInProject": "Der Agent gehört nicht zum Projekt «%s» — führe zuerst /project bind aus",
+	"project.boundNoTool":  "Verzeichnis %[2]s ist mit Projekt «%[1]s» verbunden, aber das Hinzufügen des Agenten zum Projekt schlug fehl: %[3]v",
 }
 
 func init() {

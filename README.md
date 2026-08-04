@@ -34,11 +34,12 @@ Type a task. /model — models, /help — commands, /quit — exit.
 7. [Effort — reasoning level](#effort--reasoning-level)
 8. [Loop and Autoloop — repeat and wait](#loop-and-autoloop--repeat-and-wait)
 9. [Agent memory (EXECAI/MEMORY.md)](#agent-memory)
-10. [Spend / `/usage`](#spend--usage)
-11. [Commands and hotkeys](#commands-and-hotkeys)
-12. [Sessions and history](#sessions-and-history)
-13. [Where the files live](#where-the-files-live)
-14. [Troubleshooting](#troubleshooting)
+10. [Projects and background mode — web → agent](#projects-and-background-mode--web--agent)
+11. [Spend / `/usage`](#spend--usage)
+12. [Commands and hotkeys](#commands-and-hotkeys)
+13. [Sessions and history](#sessions-and-history)
+14. [Where the files live](#where-the-files-live)
+15. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -543,6 +544,44 @@ Works across **all sources** — the system prompt is the same.
 
 ---
 
+## Projects and background mode — web → agent
+
+*Since v6.17. The web side needs the «Agents» tool in your project catalog on execai.ru — it is being rolled out gradually.*
+
+Your machine can be a **tool inside a web-chat project**: bind a directory to a project once, start the background listener — and ask the model in the browser to do things on your machine. The model calls the agent like any other project tool (ssh, git), the task runs **in the project's directory**, the answer comes back into the chat.
+
+### Binding a directory
+
+```
+/project              # your projects; ● — bound to this directory
+/project bind <name>  # bind the current directory + add this machine to the project
+/project on|off       # the same on/off toggle as in the web project card
+/project unbind       # remove the binding and the machine from the project
+```
+
+Binding does two things: remembers "this directory on this machine = that project" and adds a regular tool record to the project — like an ssh profile — so the machine appears in the web project card with an on/off toggle. The UI shows machine aliases; the stable machine id survives re-login.
+
+### `execai serve` — the background listener
+
+```
+execai serve
+```
+
+Listens for tasks from the web chat and executes them. What matters:
+
+- A task runs **in the directory bound to its project**, not where `serve` was started. Directory missing → a clear error instead of running in the wrong place.
+- **Allowed tools = your `permissions.json`** (what you approved with "Always" in the TUI). Anything not listed is refused — there is nobody around to confirm. Empty file → everything is allowed, with a loud warning at start.
+- `--read-only` — look-but-don't-touch mode: no file changes, no commands.
+- Every tool call is written to the **audit log** `~/.config/execai/serve-audit.log` (rotates at 8 MB) — so you can see what the agent did overnight.
+- One daemon per machine (pid-lock). `execai serve --status` shows pid/uptime/endpoint; `--stop` stops gracefully (lets the current task finish); `--stop --force` kills after 5 s — the current task's result is lost and the chat will see a timeout.
+- Agent offline → the chat gets an honest "agent not responding" within ~12 s; the task stays queued and runs as soon as `serve` starts. Delivery is acknowledged, so a task offered into a dead connection is never lost.
+- Closing the terminal kills the process. To survive it:
+  `setsid nohup execai serve > ~/.execai-serve.log 2>&1 &`
+
+In this mode AskUser is disabled (nobody to answer) and the iteration cap is lower (30 per task).
+
+---
+
 ## Spend / `/usage`
 
 ```
@@ -576,6 +615,7 @@ Shows different things depending on the active `/source`:
 | `/max-iterations [N]` | Limit on tool-use iterations per turn. No arg shows current (default 40). On exhaustion — a soft stop |
 | `/paste` | List of pastes (Ctrl+V of big chunks) — [Pasted #N — L lines, C chars] |
 | `/paste show <N>` | Contents of paste #N |
+| `/project [bind <name>\|on\|off\|unbind]` | Bind this directory to a web-chat project; on/off — the project toggle (since v6.17) |
 | `/loop <interval> <prompt>` | Fixed-timer loop |
 | `/loop stop` | Stop |
 | `/log` | Last 20 LLM requests (see which model actually answered) |

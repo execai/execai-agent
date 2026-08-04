@@ -34,11 +34,12 @@ Type a task. /model — models, /help — commands, /quit — exit.
 7. [Effort — nivel de razonamiento](#effort--nivel-de-razonamiento)
 8. [Loop y Autoloop — repetir y esperar](#loop-y-autoloop--repetir-y-esperar)
 9. [Memoria del agente (EXECAI/MEMORY.md)](#memoria-del-agente)
-10. [Gasto / `/usage`](#gasto--usage)
-11. [Comandos y atajos](#comandos-y-atajos)
-12. [Sesiones e historial](#sesiones-e-historial)
-13. [Dónde viven los archivos](#dónde-viven-los-archivos)
-14. [Solución de problemas](#solución-de-problemas)
+10. [Proyectos y modo en segundo plano — web → agente](#proyectos-y-modo-en-segundo-plano--web--agente)
+11. [Gasto / `/usage`](#gasto--usage)
+12. [Comandos y atajos](#comandos-y-atajos)
+13. [Sesiones e historial](#sesiones-e-historial)
+14. [Dónde viven los archivos](#dónde-viven-los-archivos)
+15. [Solución de problemas](#solución-de-problemas)
 
 ---
 
@@ -539,6 +540,44 @@ Funciona en **todas las fuentes** — el system prompt es el mismo.
 
 ---
 
+## Proyectos y modo en segundo plano — web → agente
+
+*Desde v6.17. La parte web requiere la herramienta «Agentes» en el catálogo del proyecto en execai.ru — se está activando gradualmente.*
+
+Tu máquina puede ser **una herramienta dentro de un proyecto del chat web**: vincula un directorio al proyecto una vez, arranca el escucha en segundo plano — y pide al modelo en el navegador que haga cosas en tu máquina. El modelo llama al agente como a cualquier otra herramienta del proyecto (ssh, git), la tarea se ejecuta **en el directorio del proyecto** y la respuesta vuelve al chat.
+
+### Vincular un directorio
+
+```
+/project              # tus proyectos; ● — vinculado a este directorio
+/project bind <nombre>  # vincular el directorio actual + añadir esta máquina al proyecto
+/project on|off       # el mismo interruptor que en la tarjeta del proyecto web
+/project unbind       # quitar la vinculación y la máquina del proyecto
+```
+
+La vinculación hace dos cosas: recuerda «este directorio en esta máquina = aquel proyecto» y añade al proyecto un registro de herramienta normal — como un perfil ssh — así la máquina aparece en la tarjeta del proyecto con su interruptor. La interfaz muestra alias; el id estable de la máquina sobrevive a un nuevo login.
+
+### `execai serve` — el escucha en segundo plano
+
+```
+execai serve
+```
+
+Escucha tareas del chat web y las ejecuta. Lo importante:
+
+- La tarea se ejecuta **en el directorio vinculado a su proyecto**, no donde se lanzó `serve`. ¿Directorio desaparecido? → error claro, no ejecución en el lugar equivocado.
+- **Lo permitido = tu `permissions.json`** (lo que aprobaste con «Siempre» en la TUI). Lo que no está en la lista se rechaza — no hay nadie cerca para confirmar. Archivo vacío → todo permitido, con un aviso bien visible al arrancar.
+- `--read-only` — modo solo lectura: sin cambios de archivos ni comandos.
+- Cada llamada de herramienta va al **registro de auditoría** `~/.config/execai/serve-audit.log` (rota a 8 MB) — se ve qué hizo el agente por la noche.
+- Un demonio por máquina (pid-lock). `execai serve --status` muestra pid/tiempo/endpoint; `--stop` para suavemente (deja terminar la tarea actual); `--stop --force` mata tras 5 s — el resultado de la tarea actual se pierde y el chat verá un timeout.
+- Agente offline → el chat recibe un honesto «el agente no responde» en ~12 s; la tarea queda en cola y se ejecuta en cuanto arranque `serve`. La entrega se confirma (ack): una tarea ofrecida a una conexión muerta no se pierde.
+- Cerrar la terminal mata el proceso. Para que sobreviva:
+  `setsid nohup execai serve > ~/.execai-serve.log 2>&1 &`
+
+En este modo AskUser está desactivado (no hay quien responda) y el límite de iteraciones es menor (30 por tarea).
+
+---
+
 ## Gasto / `/usage`
 
 ```
@@ -572,6 +611,7 @@ Muestra cosas distintas según el `/source` activo:
 | `/max-iterations [N]` | Límite de iteraciones de tool-use por turno. Sin arg muestra el actual (por defecto 40). Al agotarse — parada suave |
 | `/paste` | Lista de pegados (Ctrl+V de trozos grandes) — [Pasted #N — L lines, C chars] |
 | `/paste show <N>` | Contenido del pegado #N |
+| `/project [bind <nombre>\|on\|off\|unbind]` | Vincular el directorio a un proyecto del chat web; on/off — interruptor del proyecto (desde v6.17) |
 | `/loop <interval> <prompt>` | Loop con temporizador fijo |
 | `/loop stop` | Detener |
 | `/log` | Últimas 20 peticiones LLM (para ver qué modelo respondió realmente) |

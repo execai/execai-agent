@@ -169,6 +169,73 @@ Consejo: Enter — enviar, Shift+Enter — nueva línea.`,
 	"ask.dismissed":         "a criterio del agente",
 	"ask.dismissedForModel": "El usuario cerró la pregunta sin elegir. Decide tú, indica el supuesto que has adoptado y continúa.",
 	"subagent.emptyResult":  "el subagente no devolvió nada",
+
+	// === /key — ключ шифрования памяти ===
+	"hint.key":  "clave de cifrado de memoria (ver / exportar / importar / crear)",
+	"key.usage": "/key — estado · /key new — crear · /key export — mostrar la clave privada · /key import <clave> — instalar una clave de otra máquina",
+	"key.absent": "Todavía no hay clave de cifrado.\n" +
+		"Se creará automáticamente en la primera sincronización, o ahora con /key new.\n" +
+		"Ubicación: %s",
+	"key.present": "La clave de cifrado está en su sitio.\n" +
+		"Clave pública (se puede compartir; con ella cifran PARA ti):\n" +
+		"  %s\n" +
+		"Archivo: %s",
+	"key.created": "Clave de cifrado creada.\n" +
+		"Clave pública: %s\n" +
+		"Archivo: %s",
+	"key.alreadyExists": "Ya existe una clave (pública: %s). NO se reemplazó: eso supondría perder el acceso a todo lo cifrado con ella.",
+	"key.noRecoveryWarning": "⚠ No hay recuperación. No tenemos tu clave y nunca la tendremos.\n" +
+		"Si la pierdes, la memoria sincronizada queda ilegible: solo se puede reconstruir desde cero.\n" +
+		"\n" +
+		"Guarda una copia ahora: /key export, y ponla en un gestor de contraseñas.\n" +
+		"Para usar la misma memoria en otra máquina, ejecuta allí /key import <clave>.",
+	"key.exportWarning": "⚠ Debajo está tu clave PRIVADA. Quien la tenga puede leer tu memoria sincronizada. No la pegues en chats, issues ni capturas.",
+	"key.exportHint":    "Parte pública (esta sí se puede compartir): %s",
+	"key.imported":      "Clave instalada. Pública: %s",
+	"key.importFailed": "No se pudo instalar la clave: %v\n" +
+		"\n" +
+		"Si querías reemplazar una existente, bórrala primero, pero asegúrate de tener\n" +
+		"una copia: de lo contrario, todo lo cifrado con la anterior será ilegible: %s",
+	"key.invalid": "Esto no parece una clave privada (%v). Formato esperado: AGE-SECRET-KEY-1…",
+	"key.error":   "La operación con la clave falló: %v",
+
+	// === /memory — импорт и экспорт памяти ===
+	"hint.memory":            "memoria del agente: importar de otros agentes, exportar",
+	"memory.usage":           "/memory — estado · /memory import — traer memoria de otros agentes · /memory export [dir] — volcar la memoria en markdown",
+	"memory.status":          "Memoria: %d entradas en %s",
+	"memory.foundNearby":     "Archivos de memoria de otros agentes encontrados aquí: %d",
+	"memory.importHint":      "\nPara traerlos: /memory import",
+	"memory.nothingToImport": "No se encontró memoria de otros agentes en %s.\nBuscado: CLAUDE.md, .claude/, AGENTS.md, .cursorrules, .cursor/rules/, .github/copilot-instructions.md, EXECAI.md",
+	"memory.importQuestion":  "¿Importar %d archivo(s) a la memoria del agente?",
+	"memory.importYes":       "Importar",
+	"memory.importYesDesc":   "El contenido pasa a formar parte de la memoria, que luego se sincroniza al servidor (cifrada con tu clave)",
+	"memory.importNo":        "Cancelar",
+	"memory.importNoDesc":    "No se lee ni se copia nada",
+	"memory.importCancelled": "Importación cancelada: no se copió nada.",
+	"memory.imported":        "Importados: %d",
+	"memory.exported":        "Exportados %d archivo(s) a %s",
+	"memory.error":           "La operación con la memoria falló: %v",
+
+	// === /project — привязка каталога к проекту ===
+	"hint.project":         "vincular este directorio a un proyecto del chat web",
+	"project.usage":        "/project — lista de proyectos · bind <nombre> — vincular este directorio · unbind — desvincular · on/off — activar/desactivar el agente en el proyecto",
+	"project.listHeader":   "Tus proyectos (● vinculado a este directorio, ○ vinculado en otro sitio):",
+	"project.listHint":     "Vincular: /project bind <nombre>",
+	"project.none":         "Aún no tienes proyectos: créalos en el chat web.",
+	"project.defaultTag":   "[por defecto]",
+	"project.bound":        "Proyecto «%s» vinculado a %s",
+	"project.unbound":      "Vínculo eliminado de %s",
+	"project.notBound":     "Ningún proyecto está vinculado a %s",
+	"project.notFound":     "Proyecto «%s» no encontrado. Disponibles: %s",
+	"project.needLogin":    "se requiere una cuenta de ExecAI — /login",
+	"project.error":        "La operación con el proyecto falló: %v",
+	"project.agentOn":      "[agente activo]",
+	"project.agentOff":     "[agente APAGADO]",
+	"project.enabled":      "Agente «%s» activado en el proyecto «%s»: tomará tareas de ahí",
+	"project.disabled":     "Agente «%s» desactivado en el proyecto «%s»: no tomará tareas de ahí",
+	"project.notAgent":     "Esta sesión no es un agente, no hay nada que añadir. Inicia sesión con /login en la propia máquina.",
+	"project.notInProject": "El agente no forma parte del proyecto «%s»: ejecuta antes /project bind",
+	"project.boundNoTool":  "El directorio %[2]s está vinculado al proyecto «%[1]s», pero no se pudo añadir el agente al proyecto: %[3]v",
 }
 
 func init() {

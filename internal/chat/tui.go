@@ -148,6 +148,10 @@ type tuiModel struct {
 	askOptions  []tools.AskOption
 	askFocus    int
 	askReplyCh  chan string
+	// askPending — что сделать после ответа на вопрос, заданный НЕ инструментом,
+	// а командой. Блокировать обработчик нельзя: он крутится в том же цикле
+	// bubbletea, который доставит ответ, — получился бы deadlock.
+	askPending func(answer string) string
 
 	viewport viewport.Model
 	textarea textarea.Model
@@ -1311,6 +1315,9 @@ var allCommands = []suggestItem{
 	{insert: "/clear", label: "/clear", hint: "hint.clear"},
 	{insert: "/whoami", label: "/whoami", hint: "hint.whoami"},
 	{insert: "/config", label: "/config", hint: "hint.config"},
+	{insert: "/key", label: "/key", hint: "hint.key"},
+	{insert: "/memory", label: "/memory", hint: "hint.memory"},
+	{insert: "/project", label: "/project", hint: "hint.project"},
 	{insert: "/permissions", label: "/permissions", hint: "hint.permissions"},
 	{insert: "/login", label: "/login", hint: "hint.login"},
 	{insert: "/logout", label: "/logout", hint: "hint.logout"},
@@ -1619,6 +1626,20 @@ func (m *tuiModel) handleCommand(line string) (tea.Model, tea.Cmd) {
 		} else {
 			m.statusMessage = i18n.T("ui.whoami.notLoggedIn")
 		}
+		return m, nil
+	case cmd == "/project" || strings.HasPrefix(cmd, "/project "):
+		m.uiSegments = append(m.uiSegments, segment{kind: "system_hint", body: m.handleProjectCommand(cmd)})
+		m.refreshViewport()
+		return m, nil
+	case cmd == "/memory" || strings.HasPrefix(cmd, "/memory "):
+		if out := m.handleMemoryCommand(cmd); out != "" {
+			m.uiSegments = append(m.uiSegments, segment{kind: "system_hint", body: out})
+		}
+		m.refreshViewport()
+		return m, nil
+	case cmd == "/key" || strings.HasPrefix(cmd, "/key "):
+		m.uiSegments = append(m.uiSegments, segment{kind: "system_hint", body: m.handleKeyCommand(cmd)})
+		m.refreshViewport()
 		return m, nil
 	case cmd == "/config":
 		dir, _ := config.Dir()
@@ -2089,6 +2110,14 @@ func (m *tuiModel) replyAsk(answer string) {
 		shown = i18n.T("ask.dismissed")
 	}
 	m.emitSegment(segment{kind: "system_hint", body: i18n.Tf("ask.answered", q, shown)})
+
+	// Вопрос от команды: выполняем отложенное действие и печатаем результат.
+	if pending := m.askPending; pending != nil {
+		m.askPending = nil
+		if out := pending(answer); out != "" {
+			m.emitSegment(segment{kind: "system_hint", body: out})
+		}
+	}
 	m.refreshViewport()
 }
 

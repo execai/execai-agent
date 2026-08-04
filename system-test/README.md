@@ -84,6 +84,7 @@ Claude CLI:    локальный `claude` Pro/Max OAuth (claude --version → 2
 | T05   | scenarios/05-vision-multi-image.md    | drag, Ctrl+V, multiple images            | 3 мин  |
 | T06   | scenarios/06-session-continuity.md    | Перезапуск CLI продолжает беседу         | 2 мин  |
 | T07   | scenarios/07-status-bar-sync.md       | src/provider/model в статус-баре         | 3 мин  |
+| T08   | scenarios/08-project-and-serve.md     | Проекты + канал «веб → агент» (WA-лист)  | 15 мин |
 
 ## Bug tracker
 

@@ -1,11 +1,11 @@
 // Agent memory — modeled after how Claude Code does it:
 //
-//   ~/.config/execai/memory/
-//     MEMORY.md              — index (always in context, short links)
-//     user_role.md           — 1 file per fact, frontmatter + body
-//     feedback_style.md
-//     project_execai.md
-//     reference_jenkins.md
+//	~/.config/execai/memory/
+//	  MEMORY.md              — index (always in context, short links)
+//	  user_role.md           — 1 file per fact, frontmatter + body
+//	  feedback_style.md
+//	  project_execai.md
+//	  reference_jenkins.md
 //
 // ONLY MEMORY.md (the index) is loaded into the system prompt. The LLM reads
 // individual files via Read when it deems them relevant. This design keeps

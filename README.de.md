@@ -34,11 +34,12 @@ Type a task. /model — models, /help — commands, /quit — exit.
 7. [Effort — Reasoning-Level](#effort--reasoning-level)
 8. [Loop und Autoloop — wiederholen und warten](#loop-und-autoloop--wiederholen-und-warten)
 9. [Agent-Memory (EXECAI/MEMORY.md)](#agent-memory)
-10. [Ausgaben / `/usage`](#ausgaben--usage)
-11. [Befehle und Hotkeys](#befehle-und-hotkeys)
-12. [Sessions und Verlauf](#sessions-und-verlauf)
-13. [Wo die Dateien liegen](#wo-die-dateien-liegen)
-14. [Troubleshooting](#troubleshooting)
+10. [Projekte und Hintergrundmodus — Web → Agent](#projekte-und-hintergrundmodus--web--agent)
+11. [Ausgaben / `/usage`](#ausgaben--usage)
+12. [Befehle und Hotkeys](#befehle-und-hotkeys)
+13. [Sessions und Verlauf](#sessions-und-verlauf)
+14. [Wo die Dateien liegen](#wo-die-dateien-liegen)
+15. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -539,6 +540,44 @@ Funktioniert über **alle Sources** — der System-Prompt ist derselbe.
 
 ---
 
+## Projekte und Hintergrundmodus — Web → Agent
+
+*Ab v6.17. Die Web-Seite braucht das Tool «Agenten» im Projektkatalog auf execai.ru — es wird schrittweise freigeschaltet.*
+
+Dein Rechner kann **ein Tool innerhalb eines Web-Chat-Projekts** sein: Verzeichnis einmal an ein Projekt binden, den Hintergrund-Listener starten — und im Browser das Modell bitten, Dinge auf deinem Rechner zu erledigen. Das Modell ruft den Agenten wie jedes andere Projekt-Tool (ssh, git) auf, die Aufgabe läuft **im Projektverzeichnis**, die Antwort kommt zurück in den Chat.
+
+### Verzeichnis binden
+
+```
+/project              # deine Projekte; ● — an dieses Verzeichnis gebunden
+/project bind <Name>  # aktuelles Verzeichnis binden + diesen Rechner zum Projekt hinzufügen
+/project on|off       # derselbe Schalter wie in der Projektkarte im Web
+/project unbind       # Bindung lösen und den Rechner aus dem Projekt entfernen
+```
+
+Die Bindung tut zwei Dinge: merkt sich „dieses Verzeichnis auf diesem Rechner = jenes Projekt" und legt im Projekt einen normalen Tool-Eintrag an — wie ein ssh-Profil —, sodass der Rechner in der Projektkarte mit An/Aus-Schalter erscheint. Die Oberfläche zeigt Aliasse; die stabile Rechner-id überlebt ein erneutes Login.
+
+### `execai serve` — der Hintergrund-Listener
+
+```
+execai serve
+```
+
+Lauscht auf Aufgaben aus dem Web-Chat und führt sie aus. Was zählt:
+
+- Eine Aufgabe läuft **im Verzeichnis, das an ihr Projekt gebunden ist**, nicht dort, wo `serve` gestartet wurde. Verzeichnis weg → klarer Fehler statt Ausführung am falschen Ort.
+- **Erlaubt ist, was in deiner `permissions.json` steht** (was du in der TUI mit „Immer" bestätigt hast). Alles andere wird abgelehnt — es ist niemand da, der bestätigen könnte. Leere Datei → alles erlaubt, mit deutlicher Warnung beim Start.
+- `--read-only` — Nur-Lesen-Modus: keine Dateiänderungen, keine Kommandos.
+- Jeder Tool-Aufruf landet im **Audit-Log** `~/.config/execai/serve-audit.log` (Rotation bei 8 MB) — man sieht, was der Agent nachts getan hat.
+- Ein Daemon pro Rechner (pid-lock). `execai serve --status` zeigt pid/Laufzeit/Endpoint; `--stop` stoppt sanft (lässt die aktuelle Aufgabe fertig werden); `--stop --force` killt nach 5 s — das Ergebnis der aktuellen Aufgabe geht verloren, der Chat sieht einen Timeout.
+- Agent offline → der Chat bekommt in ~12 s ein ehrliches „Agent antwortet nicht"; die Aufgabe bleibt in der Queue und läuft, sobald `serve` startet. Zustellung wird bestätigt (ack) — eine in eine tote Verbindung gereichte Aufgabe geht nicht verloren.
+- Terminal zu — Prozess tot. Damit er überlebt:
+  `setsid nohup execai serve > ~/.execai-serve.log 2>&1 &`
+
+In diesem Modus ist AskUser deaktiviert (niemand zum Antworten da), das Iterationslimit ist niedriger (30 pro Aufgabe).
+
+---
+
 ## Ausgaben / `/usage`
 
 ```
@@ -572,6 +611,7 @@ Zeigt Verschiedenes, je nach aktiver `/source`:
 | `/max-iterations [N]` | Limit für tool-use-Iterationen pro Turn. Ohne Arg wird der aktuelle Wert gezeigt (Standard 40). Bei Überschreitung — sanfter Stopp |
 | `/paste` | Liste der Pastes (Ctrl+V großer Blöcke) — [Pasted #N — L lines, C chars] |
 | `/paste show <N>` | Inhalt von Paste #N |
+| `/project [bind <Name>\|on\|off\|unbind]` | Verzeichnis an ein Web-Chat-Projekt binden; on/off — Projektschalter (ab v6.17) |
 | `/loop <interval> <prompt>` | Loop mit festem Timer |
 | `/loop stop` | Stoppen |
 | `/log` | Letzte 20 LLM-Requests (welches Modell tatsächlich geantwortet hat) |

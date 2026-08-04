@@ -8,7 +8,7 @@
 #
 # Что делает:
 #   1. Скачивает execai-{os}-{arch}.{tar.gz|zip} + SHA256SUMS из S3-прода
-#      s3://execai-agent-prod/execai/R5/latest/ (или /N/ если задать N)
+#      s3://execai-agent-prod/execai/R<мажор>/latest/ (или /N/ если задать N)
 #   2. Создаёт git tag v5.NN на execai/main (если ещё нет)
 #   3. gh release create v5.NN --repo execai/execai-agent с 7 assets и notes
 #
@@ -52,7 +52,10 @@ done
 TAG="v${VERSION}"
 TITLE="${CUSTOM_TITLE:-R${VERSION}}"
 REPO="execai/execai-agent"
-S3_PREFIX="s3://execai-agent-prod/execai/R5/${BUILD}/"
+# Ветку выводим из мажора версии: 6.17 → R6. Хардкод R5 здесь однажды уже
+# был бы миной — при выпуске R6 скрипт молча качал бы чужие бинари.
+BRANCH="R${VERSION%%.*}"
+S3_PREFIX="s3://execai-agent-prod/execai/${BRANCH}/${BUILD}/"
 
 echo "==> Publishing execai R${VERSION} to ${REPO} (tag ${TAG})"
 
