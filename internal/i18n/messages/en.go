@@ -49,7 +49,7 @@ var enMessages = map[string]string{
 	"quit.confirmCtrlC":  "Press Ctrl+C again within 2s to quit",
 	"quit.confirmCtrlD":  "Press Ctrl+D again within 2s to quit",
 	"sys.historyCleared": "history cleared",
-	"sys.imgHintPath":    "⚠ Image path not recognized (probably spaces/non-ASCII in name). Wrap it in single quotes: '/home/yz/Pictures/Screenshot.png'",
+	"sys.imgHintPath":    "⚠ Image path not recognized (probably spaces/non-ASCII in name). Wrap it in single quotes: '/home/user/Pictures/Screenshot.png'",
 
 	// === Suggest menu ===
 	"suggest.footer":    "↑↓ select · Tab/Enter confirm · Esc close",

@@ -41,7 +41,7 @@ var deMessages = map[string]string{
 	"quit.confirmCtrlC":  "Ctrl+C erneut in 2s drücken, um zu beenden",
 	"quit.confirmCtrlD":  "Ctrl+D erneut in 2s drücken, um zu beenden",
 	"sys.historyCleared": "Verlauf gelöscht",
-	"sys.imgHintPath":    "⚠ Bildpfad nicht erkannt (wahrscheinlich Leerzeichen/Nicht-ASCII im Namen). Setze ihn in einfache Anführungszeichen: '/home/yz/Pictures/Screenshot.png'",
+	"sys.imgHintPath":    "⚠ Bildpfad nicht erkannt (wahrscheinlich Leerzeichen/Nicht-ASCII im Namen). Setze ihn in einfache Anführungszeichen: '/home/user/Pictures/Screenshot.png'",
 
 	"suggest.footer":    "↑↓ wählen · Tab/Enter bestätigen · Esc schließen",
 	"effort.sliderHint": "(Shift+Tab zum Ändern)",

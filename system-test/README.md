@@ -52,7 +52,7 @@ Solo founder, время > деньги. Тесты долгие (~15-30 мин 
 сценарий упал — багу в `bugs/open/` и в этом README отметить.
 
 ```bash
-cd /home/yz/velesbsd/execai/agent-vbai
+cd <корень репозитория agent-vbai>
 # опционально — пересобрать локально из R5
 go build -o /tmp/execai ./cmd/execai
 /tmp/execai
@@ -67,7 +67,7 @@ execai
 ## Test accounts
 
 ```
-ExecAI:        alort5@yandex.com · YasonTS1   (тот что в /login)
+ExecAI:        учётка из ~/.config/execai/credentials.json (та, что в /login)
 Z.ai:          api-key Coding Plan (хранится в ~/.local/share/agent-vbai/zai-key)
 Anthropic:     sk-ant-... из console.anthropic.com (~/.local/share/agent-vbai/anthropic-key)
 Claude CLI:    локальный `claude` Pro/Max OAuth (claude --version → 2.1.173+)

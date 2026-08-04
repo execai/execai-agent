@@ -17,7 +17,7 @@ set -uo pipefail
 
 API_BASE="${API_BASE:-https://api.execai.ru}"
 FRONT_BASE="${FRONT_BASE:-https://chat.execai.ru}"
-TEST_EMAIL="${TEST_EMAIL:-alort5@yandex.com}"  # реальный юзер на dev
+TEST_EMAIL="${TEST_EMAIL:?задай TEST_EMAIL=<почта> — учётка для смоука}"
 KUBECTX="${KUBECTX:-config-dev}"
 PHASE="${PHASE:-all}"
 

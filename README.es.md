@@ -373,7 +373,7 @@ El primario se cambia automáticamente al cambiar de fuente. Precios y descripci
 **Arrastra y suelta** un PNG/JPG/GIF/WEBP en la ventana de tu terminal, o **escribe la ruta entre comillas**:
 
 ```
-› '/home/yz/Pictures/Screenshot.png' what's in this image?
+› '/home/user/Pictures/Screenshot.png' what's in this image?
 ```
 
 El agente:

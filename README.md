@@ -377,7 +377,7 @@ Primary auto-switches when you change source. Prices and descriptions live in `/
 Just **drag and drop** a PNG/JPG/GIF/WEBP into your terminal window, or **type the path in quotes**:
 
 ```
-› '/home/yz/Pictures/Screenshot.png' what's in this image?
+› '/home/user/Pictures/Screenshot.png' what's in this image?
 ```
 
 The agent will:

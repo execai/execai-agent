@@ -41,7 +41,7 @@ var esMessages = map[string]string{
 	"quit.confirmCtrlC":  "Pulsa Ctrl+C otra vez en 2s para salir",
 	"quit.confirmCtrlD":  "Pulsa Ctrl+D otra vez en 2s para salir",
 	"sys.historyCleared": "historial borrado",
-	"sys.imgHintPath":    "⚠ Ruta de imagen no reconocida (probablemente espacios/no-ASCII en el nombre). Envuélvela en comillas simples: '/home/yz/Pictures/Captura.png'",
+	"sys.imgHintPath":    "⚠ Ruta de imagen no reconocida (probablemente espacios/no-ASCII en el nombre). Envuélvela en comillas simples: '/home/user/Pictures/Captura.png'",
 
 	"suggest.footer":    "↑↓ elegir · Tab/Enter confirmar · Esc cerrar",
 	"effort.sliderHint": "(Shift+Tab para cambiar)",

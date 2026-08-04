@@ -373,7 +373,7 @@ Das primäre Modell wechselt automatisch, wenn du die Source änderst. Preise un
 Zieh einfach ein PNG/JPG/GIF/WEBP per **Drag & Drop** in dein Terminal-Fenster oder **tippe den Pfad in Anführungszeichen**:
 
 ```
-› '/home/yz/Pictures/Screenshot.png' what's in this image?
+› '/home/user/Pictures/Screenshot.png' what's in this image?
 ```
 
 Der Agent wird:

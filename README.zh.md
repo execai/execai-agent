@@ -373,7 +373,7 @@ ollama pull llama3.2               # 外部命令，你想跑什么就 pull 什�
 直接把 PNG/JPG/GIF/WEBP **拖拽**到终端窗口里，或者**用引号写路径**：
 
 ```
-› '/home/yz/Pictures/Screenshot.png' what's in this image?
+› '/home/user/Pictures/Screenshot.png' what's in this image?
 ```
 
 Agent 会：

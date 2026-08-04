@@ -41,7 +41,7 @@ var zhMessages = map[string]string{
 	"quit.confirmCtrlC":  "在 2 秒内再次按 Ctrl+C 退出",
 	"quit.confirmCtrlD":  "在 2 秒内再次按 Ctrl+D 退出",
 	"sys.historyCleared": "历史已清空",
-	"sys.imgHintPath":    "⚠ 无法识别图片路径（可能包含空格/非 ASCII 字符）。请用单引号包裹：'/home/yz/Pictures/截图.png'",
+	"sys.imgHintPath":    "⚠ 无法识别图片路径（可能包含空格/非 ASCII 字符）。请用单引号包裹：'/home/user/Pictures/截图.png'",
 
 	"suggest.footer":    "↑↓ 选择 · Tab/Enter 确认 · Esc 关闭",
 	"effort.sliderHint": "(Shift+Tab 切换)",

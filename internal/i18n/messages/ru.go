@@ -41,7 +41,7 @@ var ruMessages = map[string]string{
 	"quit.confirmCtrlC":  "Нажми Ctrl+C ещё раз в течение 2с чтобы выйти",
 	"quit.confirmCtrlD":  "Нажми Ctrl+D ещё раз в течение 2с чтобы выйти",
 	"sys.historyCleared": "история очищена",
-	"sys.imgHintPath":    "⚠ Путь к картинке не распознан (вероятно пробелы/кириллица в имени). Оберни его в одинарные кавычки: '/home/yz/Pictures/Снимок экрана.png'",
+	"sys.imgHintPath":    "⚠ Путь к картинке не распознан (вероятно пробелы/кириллица в имени). Оберни его в одинарные кавычки: '/home/user/Pictures/Снимок экрана.png'",
 
 	"suggest.footer":    "↑↓ выбор · Tab/Enter подтвердить · Esc закрыть",
 	"effort.sliderHint": "(Shift+Tab чтобы поменять)",

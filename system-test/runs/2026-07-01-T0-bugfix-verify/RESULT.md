@@ -39,8 +39,8 @@ PASS (6/6) ~60ms
 
 ### Про ExecAI 401
 
-Не связано с BUG-1. На этой машине JWT-токен (alort5@yandex.com на
-apidev.velesbsd.com) отвергается gateway'ем `/aicore-vbai/agent-stream`.
+Не связано с BUG-1. На этой машине JWT-токен (тестовая учётка на
+dev-шлюз) отвергается gateway'ем `/aicore-vbai/agent-stream`.
 При этом `execai run "..."` через legacy `chat.Once()` отрабатывает —
 он бьёт в `/billing-vbai/agent` или похожий endpoint, не agent-stream.
 
