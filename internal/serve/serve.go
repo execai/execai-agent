@@ -29,6 +29,8 @@ import (
 	"github.com/velesbsdllc/agent-vbai/internal/auth"
 	"github.com/velesbsdllc/agent-vbai/internal/config"
 	"github.com/velesbsdllc/agent-vbai/internal/llm"
+	"github.com/velesbsdllc/agent-vbai/internal/llmpick"
+	"github.com/velesbsdllc/agent-vbai/internal/subscriptions"
 	"github.com/velesbsdllc/agent-vbai/internal/tools"
 	"github.com/velesbsdllc/agent-vbai/internal/version"
 )
@@ -67,9 +69,11 @@ type Options struct {
 // DefaultOptions — разумные значения.
 func DefaultOptions() Options {
 	return Options{
-		PollWait:      60 * time.Second,
-		TaskTimeout:   5 * time.Minute,
-		MaxIterations: 30,
+		PollWait:    60 * time.Second,
+		TaskTimeout: 5 * time.Minute,
+		// 0 — взять из конфига (/max-iterations). Своё число тут означало бы,
+		// что локальная настройка человека в фоне игнорируется.
+		MaxIterations: 0,
 	}
 }
 
@@ -99,13 +103,21 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 	audit := newAuditLog()
 	defer audit.close()
 
-	fmt.Printf("execai serve · машина %s · %s\n", displayName(cr), cfg.APIBase)
+	// Источник показываем явно: теперь фон идёт по активной подписке, и
+	// человек должен видеть, чей баланс будет тратиться, ДО первой задачи.
+	src := "execai"
+	if subs, _ := subscriptions.Load(); subs != nil {
+		if a := subs.ActiveSubscription(); a != nil {
+			src = a.Provider
+		}
+	}
+	fmt.Printf("execai serve · машина %s · источник %s · %s\n", displayName(cr), src, cfg.APIBase)
 	fmt.Println("Слушаю задачи из веб-чата. Ctrl+C — выход.")
 	switch {
 	case opts.ReadOnly:
 		fmt.Println("🔒 Режим только чтение: файлы не меняются, команды не запускаются.")
 	case strict:
-		fmt.Printf("🔒 Разрешено по твоему permissions.json: %s. Остальное будет отклонено.\n",
+		fmt.Printf("🔒 Разрешено по твоему permissions.json: %s. Про остальное спрошу в веб-чате.\n",
 			strings.Join(perms.Tools, ", "))
 	default:
 		fmt.Println("⚠ permissions.json пуст — инструменты выполняются БЕЗ подтверждения,")
@@ -228,7 +240,7 @@ func runTask(ctx context.Context, cfg *config.Config, cr *config.Credentials, t 
 		return
 	}
 
-	out, err := execute(ctx, cfg, cr, prompt, cwd, opts, strict, audit)
+	out, err := execute(ctx, cfg, cr, prompt, cwd, t.ID, opts, strict, audit)
 	if err != nil {
 		postResult(ctx, cfg, cr.Token, t.ID, "error", err.Error())
 		fmt.Printf("✗ %v\n", err)
@@ -240,7 +252,7 @@ func runTask(ctx context.Context, cfg *config.Config, cr *config.Credentials, t 
 
 // execute запускает агентный цикл в нужном каталоге.
 func execute(ctx context.Context, cfg *config.Config, cr *config.Credentials,
-	prompt, cwd string, opts Options, strict bool, audit *auditLog) (string, error) {
+	prompt, cwd, taskID string, opts Options, strict bool, audit *auditLog) (string, error) {
 
 	models, err := llm.FetchModels(ctx, cfg.APIBase, cr.Token)
 	if err != nil {
@@ -250,9 +262,12 @@ func execute(ctx context.Context, cfg *config.Config, cr *config.Credentials,
 	if current == nil {
 		return "", fmt.Errorf("не выбрать модель")
 	}
-	// Именно AICoreClient, а не llm.New: агентный цикл требует потока с
-	// поддержкой инструментов, простой Stream их не умеет.
-	cli := llm.NewAICoreClient(cfg.APIBase, cr.Token, current.ID, current.Provider)
+	// Клиент выбирается ТАК ЖЕ, как в интерактиве: по активной подписке из
+	// subscriptions.json. Иначе задачи из веба шли бы через ExecAI мимо
+	// подписки, которой человек пользуется локально, — другой биллинг и,
+	// возможно, другая модель.
+	subs, _ := subscriptions.Load()
+	cli := llmpick.Client(cfg, subs, current.ID, current.Provider, cr.Token)
 
 	registry := tools.Default(cwd)
 	if opts.ReadOnly {
@@ -265,10 +280,23 @@ func execute(ctx context.Context, cfg *config.Config, cr *config.Credentials,
 	registry.Unregister("AskUser")
 	sys := agent.SystemPrompt(cwd, registry.Names(), agent.LoadMemory(cwd))
 
+	if opts.MaxIterations <= 0 {
+		opts.MaxIterations = cfg.GetMaxIterations()
+	}
 	collector := &textCollector{audit: audit}
 	// Курированные разрешения проверяет сам agent.Agent ДО approver'а, так
 	// что сюда доходит только то, чего в permissions.json нет.
-	a := agent.New(cli, registry, sys, policyApprover{strict: strict, audit: audit}, collector)
+	// Approver: спрашиваем в чате вместо немого отказа. Курированные
+	// разрешения проверяет сам agent.Agent ДО обращения сюда, так что
+	// вопросом тревожим только то, чего в permissions.json нет.
+	perms, _ := agent.LoadPermissions()
+	ap := agent.Approver(newWebApprover(ctx, cfg, cr.Token, taskID, perms, audit))
+	if !strict {
+		// Список пуст — человек ничего не настраивал; спрашивать про каждый
+		// шаг значило бы сделать режим неработоспособным из коробки.
+		ap = policyApprover{strict: false, audit: audit}
+	}
+	a := agent.New(cli, registry, sys, ap, collector)
 	a.MaxIterations = opts.MaxIterations
 
 	ctx, cancel := context.WithTimeout(ctx, opts.TaskTimeout)
@@ -345,6 +373,9 @@ func postResult(ctx context.Context, cfg *config.Config, token, taskID, chunkTyp
 		fmt.Fprintf(os.Stderr, "не удалось отправить результат задачи %s: %v\n", short(taskID), err)
 	}
 }
+
+// trimBase — база API без хвостового слэша.
+func trimBase(base string) string { return strings.TrimRight(base, "/") }
 
 func apiRequest(ctx context.Context, cfg *config.Config, token, method, path string, body []byte) ([]byte, error) {
 	base := strings.TrimRight(cfg.APIBase, "/")

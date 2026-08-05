@@ -194,7 +194,9 @@ func (a *Agent) runTool(ctx context.Context, name string, args json.RawMessage) 
 		return hint, nil
 	}
 	if t.RequiresApproval(args) && a.Approver != nil {
-		exactKey := name + "|" + string(args)
+		// Канонический ключ: description и порядок полей не должны превращать
+		// повтор той же команды в «новый» вопрос (см. exactkey.go).
+		exactKey := ExactKey(name, args)
 		// If already allowed — persisted, session-wide, or for this exact command — skip the prompt.
 		persistAllow := a.Permissions != nil && (a.Permissions.HasTool(name) || a.Permissions.HasExact(exactKey))
 		if !persistAllow && !a.allowedTools[name] && !a.allowedExactArgs[exactKey] {

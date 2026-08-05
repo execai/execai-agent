@@ -570,7 +570,8 @@ execai serve
 Listens for tasks from the web chat and executes them. What matters:
 
 - A task runs **in the directory bound to its project**, not where `serve` was started. Directory missing → a clear error instead of running in the wrong place.
-- **Allowed tools = your `permissions.json`** (what you approved with "Always" in the TUI). Anything not listed is refused — there is nobody around to confirm. Empty file → everything is allowed, with a loud warning at start.
+- **Allowed tools = your `permissions.json`** (what you approved with "FOREVER" in the TUI). Empty file → everything is allowed, with a loud warning at start.
+- **Anything not listed the agent asks about right in the web chat** *(since v6.18)*: while the task runs, a question pops up showing the exact command the agent wants to run, with the same choices as the TUI — "Once", "All of this tool in this task", "This command in this task", "FOREVER", "Deny". "FOREVER" is written to `permissions.json` on the machine. No answer within ~2 minutes (or the tab is closed) → the agent gets a refusal: silence never widens permissions.
 - `--read-only` — look-but-don't-touch mode: no file changes, no commands.
 - Every tool call is written to the **audit log** `~/.config/execai/serve-audit.log` (rotates at 8 MB) — so you can see what the agent did overnight.
 - One daemon per machine (pid-lock). `execai serve --status` shows pid/uptime/endpoint; `--stop` stops gracefully (lets the current task finish); `--stop --force` kills after 5 s — the current task's result is lost and the chat will see a timeout.
@@ -578,7 +579,7 @@ Listens for tasks from the web chat and executes them. What matters:
 - Closing the terminal kills the process. To survive it:
   `setsid nohup execai serve > ~/.execai-serve.log 2>&1 &`
 
-In this mode AskUser is disabled (nobody to answer) and the iteration cap is lower (30 per task).
+In this mode AskUser is disabled (the model's clarification questions; permission questions — see above — go to the web chat) and the iteration cap is lower (30 per task).
 
 ---
 

@@ -220,3 +220,42 @@ func TestStop_NotRunning(t *testing.T) {
 		t.Errorf("force-остановка незапущенного вернула ошибку: %v", err)
 	}
 }
+
+// Демон, запущенный из TUI, обязан пережить закрытие терминала — иначе он
+// умрёт ровно тогда, когда должен работать. Проверяем сам факт отвязки:
+// у процесса должен смениться sid (Unix).
+func TestSpawn_RefusesWhenAlreadyRunning(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := writePidFile("https://api.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	// В pid-файле — мы сами, значит «уже запущен».
+	_, err := Spawn()
+	if err == nil {
+		t.Fatal("Spawn поднял второй демон поверх работающего")
+	}
+	if !strings.Contains(err.Error(), "уже запущен") {
+		t.Errorf("непонятная причина отказа: %v", err)
+	}
+}
+
+func TestAlreadyRunning(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if running, _ := AlreadyRunning(); running {
+		t.Error("демон найден на пустом конфиге")
+	}
+	_ = writePidFile("https://api.example.com")
+	running, pid := AlreadyRunning()
+	if !running || pid != os.Getpid() {
+		t.Errorf("AlreadyRunning() = (%v, %d), ожидалось (true, %d)", running, pid, os.Getpid())
+	}
+}
+
+func TestSpawnLogPath(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	p := SpawnLogPath()
+	if !strings.HasPrefix(p, dir) || !strings.HasSuffix(p, "serve.out.log") {
+		t.Errorf("путь лога %q", p)
+	}
+}

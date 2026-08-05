@@ -94,8 +94,11 @@ func (p *Permissions) HasTool(name string) bool {
 func (p *Permissions) HasExact(key string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// Канонизируем обе стороны: записи в файле могли быть сделаны руками или
+	// старой версией — с description и своим порядком полей.
+	want := canonicalExisting(key)
 	for _, e := range p.Exact {
-		if e == key {
+		if canonicalExisting(e) == want {
 			return true
 		}
 	}

@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/velesbsdllc/agent-vbai/internal/i18n"
+	"github.com/velesbsdllc/agent-vbai/internal/serve"
+	"github.com/velesbsdllc/agent-vbai/internal/tools"
 	"github.com/velesbsdllc/agent-vbai/internal/version"
 )
 
@@ -195,7 +197,55 @@ func (m *tuiModel) projectBind(nameOrID string) string {
 			return i18n.Tf("project.boundNoTool", target.Name, cwd, err)
 		}
 	}
-	return i18n.Tf("project.bound", target.Name, cwd)
+
+	bound := i18n.Tf("project.bound", target.Name, cwd)
+
+	// Привязка без работающего слушателя бесполезна: задача из веба уйдёт в
+	// очередь, а в чате будет «агент не отвечает». Предлагаем поднять его
+	// сразу — но именно предлагаем: фоновый процесс, выполняющий инструменты
+	// без подтверждения, не должен появляться молча.
+	if running, pid := serve.AlreadyRunning(); running {
+		return bound + "\n" + i18n.Tf("project.serveAlready", pid)
+	}
+	m.askServeStart(bound)
+	return ""
+}
+
+// askServeStart предлагает запустить фоновый слушатель после привязки.
+//
+// Блокировать обработчик нельзя: он крутится в том же цикле bubbletea, который
+// доставит ответ. Поэтому поднимаем пикер и вешаем отложенное действие — оно
+// выполнится в replyAsk.
+func (m *tuiModel) askServeStart(prefix string) {
+	yes := i18n.T("project.serveYes")
+	readOnly := i18n.T("project.serveReadOnly")
+	m.asking = true
+	m.askFocus = 0
+	m.askQuestion = prefix + "\n\n" + i18n.T("project.serveQuestion")
+	m.askOptions = []tools.AskOption{
+		{Label: yes, Description: i18n.T("project.serveYesDesc")},
+		{Label: readOnly, Description: i18n.T("project.serveReadOnlyDesc")},
+		{Label: i18n.T("project.serveNo"), Description: i18n.T("project.serveNoDesc")},
+	}
+	m.askPending = func(answer string) string {
+		var args []string
+		switch answer {
+		case yes:
+		case readOnly:
+			args = append(args, "--read-only")
+		default:
+			return i18n.T("project.serveSkipped")
+		}
+		pid, err := serve.Spawn(args...)
+		if err != nil {
+			return i18n.Tf("project.serveFailed", err)
+		}
+		out := i18n.Tf("project.serveStarted", pid)
+		if p := serve.SpawnLogPath(); p != "" {
+			out += "\n" + i18n.Tf("project.serveLog", p)
+		}
+		return out
+	}
 }
 
 // projectToggle включает или выключает этого агента в привязанном проекте.

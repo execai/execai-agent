@@ -566,7 +566,8 @@ execai serve
 Escucha tareas del chat web y las ejecuta. Lo importante:
 
 - La tarea se ejecuta **en el directorio vinculado a su proyecto**, no donde se lanzó `serve`. ¿Directorio desaparecido? → error claro, no ejecución en el lugar equivocado.
-- **Lo permitido = tu `permissions.json`** (lo que aprobaste con «Siempre» en la TUI). Lo que no está en la lista se rechaza — no hay nadie cerca para confirmar. Archivo vacío → todo permitido, con un aviso bien visible al arrancar.
+- **Lo permitido = tu `permissions.json`** (lo que aprobaste con «PARA SIEMPRE» en la TUI). Archivo vacío → todo permitido, con un aviso bien visible al arrancar.
+- **Lo que no está en la lista, el agente lo pregunta directamente en el chat web** *(desde v6.18)*: durante la tarea aparece una pregunta con el comando exacto que el agente quiere ejecutar y las mismas opciones que en la TUI — «Una vez», «Toda la herramienta en esta tarea», «Este comando en esta tarea», «PARA SIEMPRE», «Rechazar». «PARA SIEMPRE» se escribe en `permissions.json` de la máquina. Sin respuesta en ~2 minutos (o con la pestaña cerrada) → el agente recibe un rechazo: el silencio nunca amplía permisos.
 - `--read-only` — modo solo lectura: sin cambios de archivos ni comandos.
 - Cada llamada de herramienta va al **registro de auditoría** `~/.config/execai/serve-audit.log` (rota a 8 MB) — se ve qué hizo el agente por la noche.
 - Un demonio por máquina (pid-lock). `execai serve --status` muestra pid/tiempo/endpoint; `--stop` para suavemente (deja terminar la tarea actual); `--stop --force` mata tras 5 s — el resultado de la tarea actual se pierde y el chat verá un timeout.
@@ -574,7 +575,7 @@ Escucha tareas del chat web y las ejecuta. Lo importante:
 - Cerrar la terminal mata el proceso. Para que sobreviva:
   `setsid nohup execai serve > ~/.execai-serve.log 2>&1 &`
 
-En este modo AskUser está desactivado (no hay quien responda) y el límite de iteraciones es menor (30 por tarea).
+En este modo AskUser está desactivado (las preguntas aclaratorias del modelo; las de permisos — ver arriba — llegan al chat web) y el límite de iteraciones es menor (30 por tarea).
 
 ---
 

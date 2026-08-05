@@ -13,6 +13,7 @@ import (
 
 	"github.com/velesbsdllc/agent-vbai/internal/i18n"
 	"github.com/velesbsdllc/agent-vbai/internal/llm"
+	"github.com/velesbsdllc/agent-vbai/internal/llmpick"
 	"github.com/velesbsdllc/agent-vbai/internal/subscriptions"
 )
 
@@ -20,96 +21,9 @@ import (
 // If active="" or "execai" → AICoreClient (our gateway).
 // Otherwise → the client of the corresponding provider.
 func (m *tuiModel) makeLLMClient() llm.StreamingLLM {
-	if m.subs != nil {
-		if active := m.subs.ActiveSubscription(); active != nil {
-			switch active.Provider {
-			case subscriptions.SourceZAI:
-				// A Z.ai Coding Plan key works ONLY through the Anthropic-compatible
-				// endpoint (like Claude Code). Default base = https://api.z.ai/api/anthropic.
-				// OpenAI /chat/completions with a Coding Plan key returns 429 "Insufficient balance"
-				// because it is billed separately from the subscription.
-				base := active.BaseURL
-				if base == "" {
-					base = "https://api.z.ai/api/anthropic"
-				}
-				return llm.NewAnthropicClient(base, active.APIKey, m.current.ID, m.cfg.ThinkingBudget)
-			case subscriptions.SourceAnthropic:
-				// The real Anthropic API — sk-ant-... key from console.anthropic.com.
-				// Pay-per-token. Endpoint api.anthropic.com.
-				base := active.BaseURL
-				if base == "" {
-					base = "https://api.anthropic.com"
-				}
-				return llm.NewAnthropicClient(base, active.APIKey, m.current.ID, m.cfg.ThinkingBudget)
-			case subscriptions.SourceKimi:
-				// Kimi Code Coding Plan subscription (kimi.com/code).
-				// Endpoint: api.kimi.com/coding — Anthropic-compat + thinking.
-				base := active.BaseURL
-				if base == "" {
-					base = "https://api.kimi.com/coding"
-				}
-				return llm.NewAnthropicClient(base, active.APIKey, m.current.ID, m.cfg.ThinkingBudget)
-			case subscriptions.SourceZAIAPI:
-				// Z.ai open platform, pay-per-token (not the Coding Plan).
-				// Endpoint: api.z.ai/api/paas/v4 — OpenAI-compat via GLMClient.
-				// Unlike the subscription this path is not restricted to a list
-				// of approved tools, so it is the safe one for our users.
-				base := active.BaseURL
-				if base == "" {
-					base = "https://api.z.ai/api/paas/v4"
-				}
-				return llm.NewGLMClient(base, active.APIKey, m.current.ID)
-			case subscriptions.SourceKimiAPI:
-				// Moonshot Platform pay-per-token API key (platform.moonshot.ai).
-				// Endpoint: api.moonshot.ai/v1 — OpenAI-compat via GLMClient.
-				base := active.BaseURL
-				if base == "" {
-					base = "https://api.moonshot.ai/v1"
-				}
-				return llm.NewGLMClient(base, active.APIKey, m.current.ID)
-			case subscriptions.SourceOpenAI:
-				// OpenAI Platform pay-per-token API key.
-				// Endpoint: api.openai.com/v1 — OpenAI-compat via GLMClient
-				// (ProviderLabel is detected as "OpenAI" from BaseURL).
-				base := active.BaseURL
-				if base == "" {
-					base = "https://api.openai.com/v1"
-				}
-				return llm.NewGLMClient(base, active.APIKey, m.current.ID)
-			case subscriptions.SourceCodexCLI:
-				// Delegation to the local `codex` CLI.
-				cli, err := llm.NewCodexCLIClient(m.current.ID)
-				if err != nil {
-					return llm.NewAICoreClient(m.cfg.APIBase, m.credsToken(), m.current.ID, m.current.Provider)
-				}
-				return cli
-			case subscriptions.SourceClaudeCLI:
-				// Delegate to the local `claude` CLI. Claude Code OAuth session,
-				// quota from the Pro/Max subscription.
-				cli, err := llm.NewClaudeCLIClient(m.current.ID)
-				if err != nil {
-					// Silent fallback — the UI should show that it is unavailable.
-					return llm.NewAICoreClient(m.cfg.APIBase, m.credsToken(), m.current.ID, m.current.Provider)
-				}
-				return cli
-			case subscriptions.SourceOllama:
-				base := active.BaseURL
-				// Cloud (ollama.com) — Anthropic-compatible endpoint, API key required.
-				// Local (localhost:11434 or custom) — OpenAI-compat, no key.
-				if isOllamaCloud(base, active.Plan) {
-					if base == "" {
-						base = "https://ollama.com"
-					}
-					return llm.NewAnthropicClient(base, active.APIKey, m.current.ID, m.cfg.ThinkingBudget)
-				}
-				if base == "" {
-					base = "http://localhost:11434"
-				}
-				return llm.NewOllamaClient(base, m.current.ID)
-			}
-		}
-	}
-	return llm.NewAICoreClient(m.cfg.APIBase, m.credsToken(), m.current.ID, m.current.Provider)
+	// Логика выбора живёт в internal/llmpick — тем же кодом пользуется
+	// `execai serve`, иначе фон ходил бы в ExecAI мимо активной подписки.
+	return llmpick.Client(m.cfg, m.subs, m.current.ID, m.current.Provider, m.credsToken())
 }
 
 // applySubscriptionSource syncs m.models/m.current with the active source
@@ -261,11 +175,7 @@ func sourceSupportsThinking(s *subscriptions.Store) bool {
 // isOllamaCloud — heuristic: ollama.com/api.ollama.com or plan="cloud".
 // Everything else is treated as local (localhost, LAN IP, custom domain).
 func isOllamaCloud(baseURL, plan string) bool {
-	if plan == "cloud" {
-		return true
-	}
-	low := strings.ToLower(baseURL)
-	return strings.Contains(low, "ollama.com")
+	return llmpick.IsOllamaCloud(baseURL, plan)
 }
 
 func modelInCatalog(models []llm.Model, id string) bool {

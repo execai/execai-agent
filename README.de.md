@@ -566,7 +566,8 @@ execai serve
 Lauscht auf Aufgaben aus dem Web-Chat und führt sie aus. Was zählt:
 
 - Eine Aufgabe läuft **im Verzeichnis, das an ihr Projekt gebunden ist**, nicht dort, wo `serve` gestartet wurde. Verzeichnis weg → klarer Fehler statt Ausführung am falschen Ort.
-- **Erlaubt ist, was in deiner `permissions.json` steht** (was du in der TUI mit „Immer" bestätigt hast). Alles andere wird abgelehnt — es ist niemand da, der bestätigen könnte. Leere Datei → alles erlaubt, mit deutlicher Warnung beim Start.
+- **Erlaubt ist, was in deiner `permissions.json` steht** (was du in der TUI mit „FÜR IMMER" bestätigt hast). Leere Datei → alles erlaubt, mit deutlicher Warnung beim Start.
+- **Alles andere erfragt der Agent direkt im Web-Chat** *(ab v6.18)*: während der Aufgabe erscheint eine Frage mit genau dem Kommando, das der Agent ausführen will, und denselben Optionen wie in der TUI — „Einmal", „Das ganze Tool in dieser Aufgabe", „Dieses Kommando in dieser Aufgabe", „FÜR IMMER", „Ablehnen". „FÜR IMMER" wird in die `permissions.json` der Maschine geschrieben. Keine Antwort in ~2 Minuten (oder Tab zu) → der Agent bekommt eine Ablehnung: Schweigen erweitert niemals Rechte.
 - `--read-only` — Nur-Lesen-Modus: keine Dateiänderungen, keine Kommandos.
 - Jeder Tool-Aufruf landet im **Audit-Log** `~/.config/execai/serve-audit.log` (Rotation bei 8 MB) — man sieht, was der Agent nachts getan hat.
 - Ein Daemon pro Rechner (pid-lock). `execai serve --status` zeigt pid/Laufzeit/Endpoint; `--stop` stoppt sanft (lässt die aktuelle Aufgabe fertig werden); `--stop --force` killt nach 5 s — das Ergebnis der aktuellen Aufgabe geht verloren, der Chat sieht einen Timeout.
@@ -574,7 +575,7 @@ Lauscht auf Aufgaben aus dem Web-Chat und führt sie aus. Was zählt:
 - Terminal zu — Prozess tot. Damit er überlebt:
   `setsid nohup execai serve > ~/.execai-serve.log 2>&1 &`
 
-In diesem Modus ist AskUser deaktiviert (niemand zum Antworten da), das Iterationslimit ist niedriger (30 pro Aufgabe).
+In diesem Modus ist AskUser deaktiviert (die Rückfragen des Modells; Berechtigungsfragen — siehe oben — kommen in den Web-Chat), das Iterationslimit ist niedriger (30 pro Aufgabe).
 
 ---
 

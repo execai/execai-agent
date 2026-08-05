@@ -289,8 +289,10 @@ func readAICoreSSE(r io.Reader, cb StreamCallbacks) (*StreamResult, error) {
 			if msg == "" {
 				msg = "Сервис временно недоступен по биллингу."
 			}
-			// Extra hint about upgrading the plan.
-			hint := "\nПодробнее: execai-dev.velesbsd.com/plans (Сменить тариф)"
+			// Extra hint about upgrading the plan. Без зашитого хоста: бинарь
+			// один на все контуры, а dev-домен в подсказке у прод-юзера — и
+			// утечка внутренней инфраструктуры, и просто враньё.
+			hint := "\nСменить тариф: раздел «Тариф» в веб-кабинете ExecAI (execai.ru)"
 			fullText := fmt.Sprintf("\n\n%s\n%s%s\n", label, msg, hint)
 			if cb.OnText != nil {
 				cb.OnText(fullText)

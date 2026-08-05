@@ -1,13 +1,17 @@
 package serve
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/velesbsdllc/agent-vbai/internal/agent"
+	"github.com/velesbsdllc/agent-vbai/internal/config"
 )
 
 // Курированные разрешения проверяет сам agent.Agent ДО approver'а, поэтому
@@ -94,5 +98,127 @@ func TestOneLine(t *testing.T) {
 	}
 	if strings.Contains(got, "�") {
 		t.Error("обрезка сломала кодировку")
+	}
+}
+
+// Ответ «Сессия» действует до конца задачи, но не дольше: следующая задача из
+// веба — это новое решение человека.
+func TestWebApprover_SessionScope(t *testing.T) {
+	asked := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		asked++
+		_ = json.NewEncoder(w).Encode(map[string]string{"answer": "session"})
+	}))
+	defer srv.Close()
+
+	a := newWebApprover(context.Background(), &config.Config{APIBase: srv.URL},
+		"tok", "task-1", nil, &auditLog{})
+
+	if d := a.AskApprove("Bash", json.RawMessage(`{"command":"ls"}`), "ls"); d != agent.ApproveOnce {
+		t.Fatalf("первый вызов: %v", d)
+	}
+	// Второй раз тот же инструмент — уже без вопроса.
+	if d := a.AskApprove("Bash", json.RawMessage(`{"command":"pwd"}`), "pwd"); d != agent.ApproveOnce {
+		t.Fatalf("второй вызов: %v", d)
+	}
+	if asked != 1 {
+		t.Errorf("спросили %d раз, ожидался 1 — «Сессия» не запомнилась", asked)
+	}
+}
+
+// «Эту команду» — узкое решение: повтор ТОЧНО такого вызова в этой задаче
+// вопроса не поднимает, а другая команда того же инструмента — поднимает.
+func TestWebApprover_ExactScope(t *testing.T) {
+	asked := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		asked++
+		_ = json.NewEncoder(w).Encode(map[string]string{"answer": "exact"})
+	}))
+	defer srv.Close()
+
+	a := newWebApprover(context.Background(), &config.Config{APIBase: srv.URL},
+		"tok", "task-1", nil, &auditLog{})
+
+	ls := json.RawMessage(`{"command":"ls","description":"list files"}`)
+	if d := a.AskApprove("Bash", ls, "ls"); d != agent.ApproveOnce {
+		t.Fatalf("первый вызов: %v", d)
+	}
+	if d := a.AskApprove("Bash", ls, "ls"); d != agent.ApproveOnce {
+		t.Fatalf("повтор той же команды: %v", d)
+	}
+	// Модель между повторами меняет подпись (поймано в WA13) — это ТА ЖЕ
+	// команда, вопрос подниматься не должен.
+	lsOther := json.RawMessage(`{"command":"ls","description":"list files (again)"}`)
+	if d := a.AskApprove("Bash", lsOther, "ls"); d != agent.ApproveOnce {
+		t.Fatalf("повтор с другой подписью: %v", d)
+	}
+	if asked != 1 {
+		t.Errorf("спросили %d раз, ожидался 1 — точный вызов не запомнился", asked)
+	}
+	// Другая команда того же инструмента — новый вопрос (и новый ответ exact).
+	if d := a.AskApprove("Bash", json.RawMessage(`{"command":"pwd"}`), "pwd"); d != agent.ApproveOnce {
+		t.Fatalf("другая команда: %v", d)
+	}
+	if asked != 2 {
+		t.Errorf("спросили %d раз, ожидалось 2 — «эту команду» не должно "+
+			"открывать инструмент целиком", asked)
+	}
+}
+
+// Не смогли спросить — отказ. Невозможность задать вопрос не должна означать
+// разрешение.
+func TestWebApprover_AskFailureIsDeny(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	a := newWebApprover(context.Background(), &config.Config{APIBase: srv.URL},
+		"tok", "task-1", nil, &auditLog{})
+	if d := a.AskApprove("Bash", json.RawMessage(`{}`), "rm -rf /"); d != agent.ApproveDeny {
+		t.Errorf("решение %v, ожидался отказ", d)
+	}
+}
+
+// Отказ и незнакомый ответ одинаково означают «не выполнять».
+func TestWebApprover_DenyAndGarbage(t *testing.T) {
+	for _, ans := range []string{"deny", "", "ЧТО-ТО"} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]string{"answer": ans})
+		}))
+		a := newWebApprover(context.Background(), &config.Config{APIBase: srv.URL},
+			"tok", "t", nil, &auditLog{})
+		if d := a.AskApprove("Write", json.RawMessage(`{}`), "x"); d != agent.ApproveDeny {
+			t.Errorf("ответ %q дал %v, ожидался отказ", ans, d)
+		}
+		srv.Close()
+	}
+}
+
+// «Всегда» обязано попасть в permissions.json — иначе следующий запуск
+// спросит снова и кнопка окажется обманом.
+func TestWebApprover_AlwaysPersists(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"answer": "always"})
+	}))
+	defer srv.Close()
+
+	perms, err := agent.LoadPermissions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := newWebApprover(context.Background(), &config.Config{APIBase: srv.URL},
+		"tok", "t", perms, &auditLog{})
+	if d := a.AskApprove("Bash", json.RawMessage(`{"command":"go test"}`), "go test"); d != agent.ApproveOnce {
+		t.Fatalf("решение %v", d)
+	}
+	reloaded, err := agent.LoadPermissions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reloaded.HasTool("Bash") {
+		t.Error("«Всегда» не записалось на диск — следующий запуск спросит снова")
 	}
 }

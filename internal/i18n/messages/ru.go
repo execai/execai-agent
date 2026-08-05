@@ -105,7 +105,7 @@ var ruMessages = map[string]string{
 	"login.greetSuffix":           " · %s/%s · /help — команды.",
 	"session.untitled":            "(без названия)",
 	"approve.title":               "⚠  Подтвердите запуск %s",
-	"approve.once":                "Раз",
+	"approve.once":                "Разово",
 	"approve.allToolSession":      "Весь %s в сессии",
 	"approve.thisCmdSession":      "Эту команду в сессии",
 	"approve.forever":             "НАВСЕГДА",
