@@ -559,7 +559,7 @@ Your machine can be a **tool inside a web-chat project**: bind a directory to a 
 /project unbind       # remove the binding and the machine from the project
 ```
 
-Binding does two things: remembers "this directory on this machine = that project" and adds a regular tool record to the project — like an ssh profile — so the machine appears in the web project card with an on/off toggle. The UI shows machine aliases; the stable machine id survives re-login.
+Binding does two things: remembers "this directory on this machine = that project" and adds a regular tool record to the project — like an ssh profile — so the machine appears in the web project card with an on/off toggle. The UI labels a machine as "alias (short id)" with the full id on hover; the stable machine id survives re-login.
 
 ### `execai serve` — the background listener
 
@@ -571,7 +571,7 @@ Listens for tasks from the web chat and executes them. What matters:
 
 - A task runs **in the directory bound to its project**, not where `serve` was started. Directory missing → a clear error instead of running in the wrong place.
 - **Allowed tools = your `permissions.json`** (what you approved with "FOREVER" in the TUI). Empty file → everything is allowed, with a loud warning at start.
-- **Anything not listed the agent asks about right in the web chat** *(since v6.18)*: while the task runs, a question pops up showing the exact command the agent wants to run, with the same choices as the TUI — "Once", "All of this tool in this task", "This command in this task", "FOREVER", "Deny". "FOREVER" is written to `permissions.json` on the machine. No answer within ~2 minutes (or the tab is closed) → the agent gets a refusal: silence never widens permissions.
+- **Anything not listed the agent asks about right in the web chat** *(since v6.33)*: while the task runs, a question pops up showing the exact command the agent wants to run, with the same choices as the TUI — "Once", "All of this tool in this task", "This command in this task", "FOREVER", "Deny". "FOREVER" is written to `permissions.json` on the machine. No answer within ~2 minutes (or the tab is closed) → the agent gets a refusal: silence never widens permissions.
 - `--read-only` — look-but-don't-touch mode: no file changes, no commands.
 - Every tool call is written to the **audit log** `~/.config/execai/serve-audit.log` (rotates at 8 MB) — so you can see what the agent did overnight.
 - One daemon per machine (pid-lock). `execai serve --status` shows pid/uptime/endpoint; `--stop` stops gracefully (lets the current task finish); `--stop --force` kills after 5 s — the current task's result is lost and the chat will see a timeout.
