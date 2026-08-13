@@ -268,3 +268,7 @@ func summaryFor(name string, args json.RawMessage) string {
 	raw, _ := json.Marshal(generic)
 	return name + " " + string(raw)
 }
+
+// SummaryFor — публичная обёртка над summaryFor: короткая подпись вызова для
+// интерфейсов (веб, IDE), чтобы каждый не изобретал свою и подписи совпадали.
+func SummaryFor(name string, args json.RawMessage) string { return summaryFor(name, args) }

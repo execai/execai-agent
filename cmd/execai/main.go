@@ -16,6 +16,7 @@ import (
 	"github.com/velesbsdllc/agent-vbai/internal/auth"
 	"github.com/velesbsdllc/agent-vbai/internal/chat"
 	"github.com/velesbsdllc/agent-vbai/internal/config"
+	"github.com/velesbsdllc/agent-vbai/internal/ide"
 	"github.com/velesbsdllc/agent-vbai/internal/serve"
 	// Blank import: registers all locales via init() → i18n.Register(...).
 	_ "github.com/velesbsdllc/agent-vbai/internal/i18n/messages"
@@ -73,6 +74,7 @@ func main() {
 		newChatCmd(),
 		newRunCmd(),
 		newServeCmd(),
+		newIDECmd(),
 		newConfigCmd(),
 		newVersionCmd(),
 	)
@@ -193,6 +195,31 @@ func newRunCmd() *cobra.Command {
 			return chat.Once(cmd.Context(), cfg, strings.Join(args, " "))
 		},
 	}
+}
+
+// newIDECmd — JSON-протокол для плагинов редакторов (VS Code / Cursor).
+//
+// Плагин запускает этот процесс и говорит с ним JSON-строками через
+// stdin/stdout (по одному сообщению на строку). Человеку эта команда не
+// нужна — её зовёт расширение.
+func newIDECmd() *cobra.Command {
+	var cwd string
+	var maxIter int
+	cmd := &cobra.Command{
+		Use:    "ide",
+		Short:  "JSON-протокол для плагина редактора (запускается плагином, не человеком)",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			return ide.Run(cmd.Context(), cfg, ide.Options{Cwd: cwd, MaxIterations: maxIter})
+		},
+	}
+	cmd.Flags().StringVar(&cwd, "cwd", "", "корень проекта (папка воркспейса редактора)")
+	cmd.Flags().IntVar(&maxIter, "max-iterations", 0, "предел итераций на ход (по умолчанию из конфига)")
+	return cmd
 }
 
 // newServeCmd — фоновый режим: агент слушает задачи из веб-чата.
