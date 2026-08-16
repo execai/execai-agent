@@ -1,6 +1,6 @@
 [English](README.md) | [Русский](README.ru.md) | [Español](README.es.md) | **Deutsch** | [中文](README.zh.md)
 
-🌐 **Website:** [execai.ru](https://execai.ru) · 💬 Web-Chat: [chat.execai.ru](https://chat.execai.ru)
+🌐 **Website:** [execai.ru](https://execai.ru) · 💬 Web-Chat: [chat.execai.ru](https://chat.execai.ru) · 🖥 Editor: [ExecAI Studio](https://github.com/execai/execai-studio)
 
 ---
 
