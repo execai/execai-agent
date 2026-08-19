@@ -1,0 +1,56 @@
+data: {"type": "session_init", "cid": "c39deab2-5d9e-4483-a030-29da593b19a2"}
+
+data: {"type": "message_id", "id": "2684"}
+
+data: {"type": "iteration_init", "iid": "838ff4cf-a0cc-4448-9f49-0c8b12d7e6c6"}
+
+data: {"type": "iteration_init", "iteration_id": "b8cb41b2-a7fe-4b1d-bda2-ad8437d4b55f"}
+
+data: {"type": "reasoning_delta", "content": "\nПользователь просит обра"}
+
+data: {"type": "reasoning_delta", "content": "титься к агенту execai на пользовательской"}
+
+data: {"type": "reasoning_delta", "content": " машине и попросить его вывести только pwd одной строкой, затем"}
+
+data: {"type": "reasoning_delta", "content": " пересказать ответ. Нужно вызвать run_on_agent с задачей"}
+
+data: {"type": "reasoning_delta", "content": " \"выведи только pwd одной строкой\"."}
+
+data: {"type": "reasoning_delta", "content": "\n"}
+
+data: {"type": "reasoning_done"}
+
+data: {"type": "text_delta", "content": "\n\n</think>"}
+
+data: {"type": "tool_call", "id": "call_019fc4d989db7c52899f1f36", "name": "run_on_agent", "arguments": {"task": "Выведи только результат команды pwd одной строкой. Ничего больше не пиши, только вывод pwd.", "agent": "0ba206a4-e546-4920-851d-b3adaa9632ca"}}
+
+data: {"type": "heartbeat"}
+
+data: {"type": "tool_progress", "id": "call_019fc4d989db7c52899f1f36", "elapsed": 5}
+
+data: {"function_result":"keepalive"}
+
+data: {"type": "tool_output_delta", "id": "call_019fc4d989db7c52899f1f36", "content": "/home/yz/velesbsd/execai/aicore-vbai"}
+
+data: {"type": "tool_result", "id": "call_019fc4d989db7c52899f1f36", "status": "success", "content": "/home/yz/velesbsd/execai/aicore-vbai"}
+
+data: {"type": "reasoning_delta", "content": "\nОтвет получен. Теку"}
+
+data: {"type": "reasoning_delta", "content": "щий рабочий каталог — `/home/yz/velesbsd/execai/aicore-vbai`. Перескажу ответ."}
+
+data: {"type": "reasoning_delta", "content": "\n"}
+
+data: {"type": "reasoning_done"}
+
+data: {"type": "text_delta", "content": "\n\nОтвет агента: те"}
+
+data: {"type": "text_delta", "content": "кущий рабочий каталог — `/home/yz"}
+
+data: {"type": "text_delta", "content": "/velesbsd/execai/aicore-vbai"}
+
+data: {"type": "text_delta", "content": "`."}
+
+data: {"type": "done", "usage": {"total_tokens": 2032, "total_characters": 0, "prompt_tokens": 1963, "completion_tokens": 69, "completion_tokens_details": {"reasoning_tokens": 35}, "prompt_tokens_details": {"cached_tokens": 1792}}}
+
+data: [AICORE_DONE]
+

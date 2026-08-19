@@ -1,0 +1,19 @@
+{"step": "wa12-once-question-visible", "verdict": "FAIL", "detail": "инструмент=— summary="}
+{"step": "wa12-once-options-shipped", "verdict": "FAIL", "detail": "варианты=[]"}
+{"step": "wa12-once-result", "verdict": "PASS", "detail": "output/4.2s keepalives=0: \n\n</think>```\nWA12-ALLOWED\n```"}
+{"step": "wa12-once-question-visible", "verdict": "PASS", "detail": "инструмент=Bash summary=Bash: touch /tmp/wa12-allowed && echo done — Созда"}
+{"step": "wa12-once-options-shipped", "verdict": "PASS", "detail": "варианты=['once', 'session', 'always', 'deny']"}
+{"step": "wa12-once-result", "verdict": "PASS", "detail": "output/5.6s keepalives=1: \n\n</think>Готово."}
+{"step": "wa12-deny-question-visible", "verdict": "PASS", "detail": "инструмент=Bash summary=Bash: touch /tmp/wa12-denied && echo done — Create"}
+{"step": "wa12-deny-options-shipped", "verdict": "PASS", "detail": "варианты=['once', 'session', 'always', 'deny']"}
+{"step": "wa12-deny-result", "verdict": "FAIL", "detail": "output/5.7s keepalives=1: \n\n.\n\nоманда отклонена пользователем — не выполняю."}
+{"step": "wa12-deny-question-visible", "verdict": "PASS", "detail": "инструмент=Bash summary=Bash: touch /tmp/wa12-denied && echo done — Создат"}
+{"step": "wa12-deny-options-shipped", "verdict": "PASS", "detail": "варианты=['once', 'session', 'always', 'deny']"}
+{"step": "wa12-deny-effect", "verdict": "PASS", "detail": "output/8.2s keepalives=1 файл=нет: \n\n.\n\nклонено."}
+{"step": "wa12-timeout-question-visible", "verdict": "PASS", "detail": "инструмент=Bash summary=Bash: touch /tmp/wa12-silence && echo done — Созда"}
+{"step": "wa12-timeout-options-shipped", "verdict": "PASS", "detail": "варианты=['once', 'session', 'always', 'deny']"}
+{"step": "wa12-timeout-effect", "verdict": "PASS", "detail": "error/110.3s keepalives=21 файл=нет: агент взял задачу, но не уложился в отведённое время. Задача 5ad21b49-51ca-43bb-bb70-9bf2c"}
+{"step": "wa12-double-answer", "verdict": "PASS", "detail": "первый=200 второй=409 (ждём 200 и 409)"}
+{"step": "wa3-off", "verdict": "PASS", "detail": "error/0.1s: агент выключен в этом проекте — включи тумблер в настройках проекта"}
+{"step": "wa3-on", "verdict": "PASS", "detail": "output/2.6s: WA3-OK"}
+{"step": "wa2-regress", "verdict": "PASS", "detail": "вызовов=1 финал=  </think>  Ответ агента:  **ОС:** Debian 6.12.74-2 (x86_64), ядро 6.12.74+deb13"}
