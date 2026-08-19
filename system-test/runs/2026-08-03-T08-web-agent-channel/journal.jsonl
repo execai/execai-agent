@@ -1,0 +1,13 @@
+{"step": "wa3-off", "verdict": "PASS", "detail": "error/0.1s: агент выключен в этом проекте — включи тумблер в настройках проекта"}
+{"step": "wa3-on", "verdict": "PASS", "detail": "output/3.1s: WA3-OK"}
+{"step": "wa4-agent-vbai", "verdict": "PASS", "detail": "output/6.6s: /home/yz/velesbsd/execai/agent-vbai"}
+{"step": "wa4-aicore-vbai", "verdict": "PASS", "detail": "output/4.6s: /home/yz/velesbsd/execai/aicore-vbai"}
+{"step": "wa5b-offline-verdict", "verdict": "PASS", "detail": "error/12.3s task=d0fc8865"}
+{"step": "wa5b-foreign-result-403", "verdict": "PASS", "detail": "HTTP 403: {\"error\":\"задача адресована другой машине\"}\n"}
+{"step": "wa6-offline", "verdict": "FAIL", "detail": "error/110.3s task=a9b4ee4f-c8ad-44e9-a920-e1eb6684d856"}
+{"step": "wa6-offline", "verdict": "PASS", "detail": "error/12.2s task=b2f0fce7-f176-421a-ac55-279627886e47"}
+b2f0fce7-f176-421a-ac55-279627886e47
+{"step":"wa6-pickup","verdict":"PASS","detail":"задача b2f0fce7 подхвачена после старта serve (ack-механика)"}
+{"step": "wa9-timeout-verdict", "verdict": "PASS", "detail": "error/110.2s keepalives=21: агент взял задачу, но не уложился в отведённое время. Задача 2c5e676b-0c9c-46cb-8c87-da50b4afb2a1 пр"}
+{"wa9_task": "2c5e676b-0c9c-46cb-8c87-da50b4afb2a1"}
+{"step":"wa9-late-completion","verdict":"PASS","detail":"задача доделана демоном после таймаута run (108 символов результата)"}

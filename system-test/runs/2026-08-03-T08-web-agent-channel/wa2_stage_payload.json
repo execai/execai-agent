@@ -1,0 +1,3 @@
+{"messages":[{"role":"user","content":"Спроси у агента, какая на машине версия ОС и сколько свободного места на диске. Перескажи мне его ответ."}],
+ "tools":[{"tool_id":"agent","alias":"dfab71ab-e321-43bf-9c7c-0f45bb6a0291"}],
+ "system":[{"model":"MiniMax-M3","provider":"minimax"}]}

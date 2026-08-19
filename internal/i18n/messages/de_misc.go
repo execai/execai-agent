@@ -1,0 +1,261 @@
+// Package messages/de_misc — deutsche Strings des Misc-Batches (tui.go,
+// plain REPL, compact, agent loop, welcome).
+package messages
+
+import "github.com/velesbsdllc/agent-vbai/internal/i18n"
+
+var deMiscMessages = map[string]string{
+	// === Boot / login flow (tui.go) ===
+	"ui.boot.noLogin": "ℹ Arbeit ohne ExecAI-Konto — Quelle: %s · Modell: %s.\n" +
+		"  /login — ExecAI-Konto verbinden (unser Katalog mit ~34 Modellen + Abrechnung).",
+	"ui.login.intro": "Hallo! Zum Anmelden musst du den Agenten im Browser bestätigen (wie bei gh auth login).\n" +
+		"Falls der Device-Flow aus irgendeinem Grund nicht funktioniert — kannst du hier ein JWT-Token (eyJ…) einfügen und Enter drücken.\n\n" +
+		"ℹ Ein ExecAI-Konto ist OPTIONAL: du kannst ohne Anmeldung mit deinem eigenen Abo arbeiten.\n" +
+		"  /connect kimi <key>   → /source kimi     (Kimi Code)\n" +
+		"  /connect zai <key>    → /source zai      (Z.ai GLM)\n" +
+		"  /connect openai <key> → /source openai   (OpenAI API)\n" +
+		"  Außerdem: anthropic, kimi-api, claude-cli, codex-cli, ollama — /connect zeigt alles.",
+	"ui.login.staleToken":          "Das alte Token ist auf %s ungültig. Starte Device-Flow für eine neue Anmeldung…",
+	"ui.login.startFlow":           "Starte Device-Flow für eine neue Anmeldung…",
+	"ui.login.deviceFlowOpen":      "Im Browser öffnen und bestätigen:\n\n  %s\n\nCode (falls du ihn manuell eingibst): %s\n\nDrücke Enter / [y], um den Browser automatisch zu öffnen. [n], um ihn selbst zu öffnen.",
+	"ui.boot.modelsFallbackFailed": "konnte die Modellliste weder abrufen noch als Fallback zusammenstellen",
+	"ui.welcome":                   "execai %s · %s/%s · %s · %s\nGib eine Aufgabe ein. /model — Modelle, /help — Befehle, /quit — Beenden.",
+
+	// === Stream errors / token expiry ===
+	"ui.stream.tokenExpiredHint": "→ Wechsle /source zai|ollama|anthropic, oder /login zum erneuten Bestätigen.",
+	"ui.stream.tokenExpiredFlow": "ExecAI-Token abgelaufen — starte Device-Flow. Bestätige im Browser.",
+
+	// === /compact ===
+	"ui.compact.historyNote": "[Verlauf zuvor komprimiert (%d Nachrichten): %s]",
+	"ui.compact.done":        "📦 Verlauf komprimiert: %d Nachrichten → 1 Summary (~%d Zeichen)",
+	"ui.compact.working":     "komprimiere den Verlauf…",
+	"ui.compact.tooShort":    "der Verlauf ist noch kurz — nichts zu komprimieren (es werden >%d Nachrichten benötigt)",
+	"ui.compact.truncated":   "…(gekürzt)",
+	"ui.compact.promptSystem": "Du bist ein Kontext-Kompressor für einen KI-Agenten. Du bekommst das Transkript eines Gesprächs. " +
+		"Gib eine KURZE Zusammenfassung (≤500 Wörter) zurück, die Folgendes bewahrt:\n" +
+		"  • zentrale Entscheidungen und ihre Gründe\n" +
+		"  • wichtige Dateipfade und Befehle\n" +
+		"  • Ergebnisse von Tool-Calls, die später nützlich sein könnten\n" +
+		"  • Fehler und wie sie gelöst wurden\n" +
+		"Lass Geplauder und Bestätigungen weg. Schreibe auf Deutsch, im Telegrammstil.",
+	"ui.compact.promptUser": "Komprimiere dieses Gespräch:\n\n%s",
+
+	// === Autoloop ===
+	"ui.autoloop.defaultPrompt": "mach weiter",
+	"ui.autoloop.wake":          "🌙 autoloop: Aufwachen in %s (%s) → Prompt: %q",
+
+	// === /paste ===
+	"ui.paste.empty":     "Keine Einfügungen in dieser Sitzung. Ctrl+V mit einem großen Textblock → Marker.",
+	"ui.paste.header":    "Einfügungen (Ctrl+V ≥200 Zeichen oder mit \\n):\n",
+	"ui.paste.showHint":  "\nAnzeigen: /paste show <N>",
+	"ui.paste.notNumber": "keine Zahl: %s",
+	"ui.paste.notFound":  "Einfügung #%d existiert nicht",
+	"ui.paste.usage":     "Verwendung: /paste [list|show <N>]",
+
+	// === /whoami ===
+	"ui.whoami.notLoggedIn": "(nicht angemeldet — /login)",
+
+	// === /classic & /mouse ===
+	"ui.classic.on":  "✓ classic TUI ON — starte execai neu (/quit → execai). Alt-Screen + fixierte Statusleiste, Shift+Ziehen zum Kopieren.",
+	"ui.classic.off": "✓ Ink-Style (Standard) — starte execai neu. Verlauf im Scrollback, native Auswahl und Scrollen.",
+	"ui.mouse.off":   "🖱  Mauserfassung OFF — die Maus markiert Text, das Menü reagiert nicht auf Klicks. Aktivieren: /mouse on",
+	"ui.mouse.on":    "🖱  Mauserfassung ON — Rad scrollt, Klicks im Menü. Text markieren: Shift+Ziehen. Aus: /mouse off",
+
+	// === /effort ===
+	"ui.effort.pickerHint": "Effort-Picker: ←/→ wählen, Enter bestätigen, Esc abbrechen",
+	"ui.effort.current":    "Effort jetzt: %s (%d Tokens)\nÄndern: /effort <off|low|medium|high|max>\n  off=0  low=1024  medium=4096  high=8192  max=32000\nFunktioniert für Anthropic-kompatible Quellen (Z.ai, Kimi, Anthropic, ollama-cloud, claude-cli).",
+	"ui.effort.set":        "✓ effort=%s (%d Tokens)",
+
+	// === /max-iterations ===
+	"ui.maxIter.current": "Max iterations jetzt: %d\nLimit für Tool-Use-Iterationen pro Zug. Bei Erschöpfung — sanfter Stopp, der Nutzer kann 'mach weiter' sagen.\nÄndern: /max-iterations <N>  (empfohlen 20-200; Standard 50)",
+	"ui.maxIter.usage":   "/max-iterations <N>  wobei N von 1 bis 500 geht (empfohlen 20-200)",
+
+	// === /loop ===
+	"ui.loop.status":      "🔁 loop: alle %s — %q. /loop stop zum Anhalten",
+	"ui.loop.inactive":    "loop ist inaktiv. Verwendung: /loop <Intervall> <Prompt>  (Beispiel: /loop 5m prüfe den Build-Status)",
+	"ui.loop.notRunning":  "loop läuft ohnehin nicht",
+	"ui.loop.stopped":     "🔁 loop angehalten",
+	"ui.loop.usage":       "/loop <Intervall> <Prompt>  (z. B.: /loop 5m prüfe den Build-Status)",
+	"ui.loop.badInterval": "Intervall %s nicht parsbar — es braucht etwas wie 30s, 5m, 1h",
+	"ui.loop.started":     "🔁 loop gestartet: alle %s — %q\nAnhalten: /loop stop",
+
+	// === /log ===
+	"ui.log.none":   "noch kein Log: %s",
+	"ui.log.header": "📜 Letzte %d Anfragen (%s):\n",
+
+	// === /usage & /cd ===
+	"ui.usage.fetchFailed": "Usage konnte nicht abgerufen werden: %s",
+	"ui.cd.current":        "cwd jetzt: %s",
+
+	// === Sessions ===
+	"ui.session.new":         "neues Gespräch",
+	"ui.sessions.header":     "\nGespeicherte Gespräche (neueste oben):\n",
+	"ui.sessions.empty":      "(leer)\n",
+	"ui.sessions.switchHint": "\nWechseln: /resume <Nummer|id>",
+	"ui.resume.notFound":     "Gespräch %q nicht gefunden. /sessions — Liste",
+	"ui.resume.loadFailed":   "konnte nicht geladen werden: %s",
+	"ui.resume.resumed":      "wir machen weiter: %s",
+	"ui.title.renamed":       "umbenannt: %s",
+
+	// === /permissions ===
+	"ui.perms.toolsEmpty": "  always allowed tools: (leer)\n",
+	"ui.perms.exactCount": "  always allowed exact commands: %d Einträge\n",
+	"ui.perms.resetHint":  "\nZum Zurücksetzen — lösche die Datei manuell oder führe aus: rm ~/.config/execai/permissions.json",
+
+	// === /model ===
+	"ui.model.notFound": "Modell %q nicht gefunden",
+	"ui.model.switched": "gewechselt zu %s/%s — %s (Verlauf bleibt erhalten)",
+
+	// === Approve ===
+	"ui.approve.denied":       "abgelehnt",
+	"ui.approve.allowedTool":  "erlaubt: alle %s-Aufrufe in dieser Sitzung",
+	"ui.approve.allowedExact": "erlaubt: dieser Befehl in dieser Sitzung",
+	"ui.approve.navHint":      "← → oder Tab — wechseln, Enter — auswählen, Esc — ablehnen",
+
+	// === Tool-call summaries ===
+	"ui.toolSummary.write": "Write %s  (%d Bytes)",
+
+	// === Plain REPL (chat.go) ===
+	"plain.err.fetchModels":    "Modellliste konnte nicht abgerufen werden",
+	"plain.err.emptyModels":    "der Server hat eine leere Modellliste zurückgegeben",
+	"plain.err.pickModelEmpty": "es konnte kein Modell gewählt werden (leere Liste?)",
+	"plain.err.pickModel":      "es konnte kein Modell gewählt werden",
+	"plain.commands":           "Befehle: /model — Modell wählen, /clear — Verlauf löschen, /quit — Beenden.",
+	"plain.historyCleared":     "(Verlauf gelöscht)",
+	"plain.modelSwitchHint":    "\nWechseln: /model <Nummer> oder /model <model_name>",
+	"plain.modelNotFound":      "(Modell %q nicht gefunden. /model — Liste ansehen)",
+	"plain.modelSwitched":      "(gewechselt zu %s/%s — %s; Verlauf bleibt erhalten)",
+	"plain.errorPrefix":        "Fehler:",
+	"plain.modelsHeader":       "\nVerfügbare Modelle (★ — primary, • — current):",
+
+	// === Agent loop (internal/agent) ===
+	"loop.iterationLimit": "⚠ Limit von %d Iterationen erreicht — die Aufgabe ist nicht abgeschlossen. Sag „mach weiter“, um %d weitere zu gewähren, oder formuliere sie um.",
+
+	// === Welcome screen (first launch) ===
+	"welcome.text": `Hallo! Das ist execai — ein CLI-Agent für die Entwicklung.
+
+Was er kann:
+  • Dateien lesen/schreiben/bearbeiten (Read, Write, Edit)
+  • suchen (Grep, Glob, LS, Tree)
+  • Shell-Befehle ausführen (Bash) — read-only ohne Nachfrage, der Rest mit Rückfrage
+  • HTTP-Anfragen stellen (WebFetch — ohne Browser; ein echter Browser kommt separat)
+  • eine To-do-Liste führen (TodoWrite)
+
+Gedächtnis:
+  • ./EXECAI.md           — Projektgedächtnis (Repo-Kontext)
+  • ~/.config/execai/EXECAI.md — deine persönlichen Einstellungen
+Beide Dateien werden in jeder Sitzung automatisch in den System-Prompt geladen.
+
+Befehle:
+  /model               — Modellliste
+  /model <num|Teilstring> — wechseln (Verlauf bleibt erhalten)
+  /clear               — Verlauf löschen
+  /help                — diese Nachricht
+  /quit                — Beenden
+
+Tipp: Enter — senden, Shift+Enter — Zeilenumbruch.`,
+
+	// === WebSearch / WebFetch tools ===
+	"tool.websearch.noLogin": "Die Websuche ist nicht verfügbar: Sie läuft über das ExecAI-Gateway und erfordert ein ExecAI-Konto.\n" +
+		"Ohne Login bleibt der lokale Browser — öffne mit WebFetch beliebige URLs und folge den zurückgegebenen Links.\n" +
+		"Mit /login schaltest du die Suche frei (und damit auch den ExecAI-Modellkatalog).",
+	"tool.websearch.sources": "Quellen:",
+	"tool.websearch.empty":   "Die Suche lieferte kein Ergebnis. Formuliere die Anfrage um oder öffne eine konkrete Seite mit WebFetch.",
+
+	// === AskUser picker + субагенты ===
+	"ask.title":             "Der Agent fragt:",
+	"ask.hint":              "↑↓ wählen · Enter bestätigen · 1-4 direkt · Esc — Agent entscheidet",
+	"ask.answered":          "Frage: %s → %s",
+	"ask.dismissed":         "dem Agenten überlassen",
+	"ask.dismissedForModel": "Der Nutzer hat die Frage ohne Auswahl geschlossen. Entscheide selbst, nenne die getroffene Annahme und mach weiter.",
+	"subagent.emptyResult":  "der Subagent lieferte kein Ergebnis",
+
+	// === /key — ключ шифрования памяти ===
+	"hint.key":  "Schlüssel zur Speicher-Verschlüsselung (anzeigen / exportieren / importieren / erstellen)",
+	"key.usage": "/key — Status · /key new — erstellen · /key export — privaten Schlüssel anzeigen · /key import <Schlüssel> — Schlüssel von einem anderen Rechner einsetzen",
+	"key.absent": "Noch kein Verschlüsselungsschlüssel vorhanden.\n" +
+		"Er wird beim ersten Sync automatisch erstellt — oder jetzt mit /key new.\n" +
+		"Ort: %s",
+	"key.present": "Verschlüsselungsschlüssel ist vorhanden.\n" +
+		"Öffentlicher Schlüssel (darf geteilt werden; damit wird FÜR dich verschlüsselt):\n" +
+		"  %s\n" +
+		"Datei: %s",
+	"key.created": "Verschlüsselungsschlüssel erstellt.\n" +
+		"Öffentlicher Schlüssel: %s\n" +
+		"Datei: %s",
+	"key.alreadyExists": "Es existiert bereits ein Schlüssel (öffentlich: %s). Er wurde NICHT ersetzt — das hieße, den Zugriff auf alles damit Verschlüsselte zu verlieren.",
+	"key.noRecoveryWarning": "⚠ Es gibt keine Wiederherstellung. Wir haben deinen Schlüssel nicht und werden ihn nie haben.\n" +
+		"Geht er verloren, ist der synchronisierte Speicher unlesbar — er lässt sich nur neu aufbauen.\n" +
+		"\n" +
+		"Sichere jetzt eine Kopie: /key export, und leg sie in einen Passwortmanager.\n" +
+		"Für denselben Speicher auf einem anderen Rechner dort /key import <Schlüssel> ausführen.",
+	"key.exportWarning": "⚠ Unten steht dein PRIVATER Schlüssel. Wer ihn hat, liest deinen synchronisierten Speicher. Nicht in Chats, Issues oder Screenshots einfügen.",
+	"key.exportHint":    "Öffentlicher Teil (der darf geteilt werden): %s",
+	"key.imported":      "Schlüssel eingesetzt. Öffentlich: %s",
+	"key.importFailed": "Schlüssel konnte nicht eingesetzt werden: %v\n" +
+		"\n" +
+		"Wolltest du einen vorhandenen ersetzen, lösche ihn zuerst — aber stelle sicher,\n" +
+		"dass du eine Kopie hast, sonst wird alles mit dem alten Schlüssel Verschlüsselte unlesbar: %s",
+	"key.invalid": "Das sieht nicht nach einem privaten Schlüssel aus (%v). Erwartetes Format: AGE-SECRET-KEY-1…",
+	"key.error":   "Schlüssel-Operation fehlgeschlagen: %v",
+
+	// === /memory — импорт и экспорт памяти ===
+	"hint.memory":               "Agenten-Speicher: von anderen Agenten importieren, exportieren",
+	"hint.memoryFind":           "im eigenen Gedächtnis suchen, und wenn leer — bei anderen Agenten",
+	"memory.usage":              "/memory — Status · /memory import — Speicher anderer Agenten übernehmen · /memory export [Verzeichnis] — Speicher als Markdown ausgeben · /memory find <Suche> — im eigenen Gedächtnis suchen, dann bei anderen Agenten",
+	"memory.findUsage":          "Wonach suchen? Beispiel: /memory find Preise",
+	"memory.findMine":           "🧠 In meinem eigenen Gedächtnis gefunden (%d) für „%s“:",
+	"memory.findForeign":        "📁 Nichts im eigenen Gedächtnis, aber ein anderer Agent auf diesem Rechner hat es (%d) für „%s“:",
+	"memory.findNothing":        "Nichts gefunden, weder im eigenen Gedächtnis noch bei einem anderen Agenten: „%s“",
+	"memory.findImportQuestion": "In mein Gedächtnis übernehmen? (%d Datei(en))",
+	"memory.status":             "Speicher: %d Einträge in %s",
+	"memory.foundNearby":        "Hier gefundene Speicherdateien anderer Agenten: %d",
+	"memory.importHint":         "\nÜbernehmen mit: /memory import",
+	"memory.nothingToImport":    "In %s wurde kein Speicher anderer Agenten gefunden.\nGesucht: CLAUDE.md, .claude/, AGENTS.md, .cursorrules, .cursor/rules/, .github/copilot-instructions.md, EXECAI.md",
+	"memory.importQuestion":     "%d Datei(en) in den Speicher des Agenten importieren?",
+	"memory.importYes":          "Importieren",
+	"memory.importYesDesc":      "Der Inhalt wird Teil des Speichers — und der wird später zum Server synchronisiert (mit deinem Schlüssel verschlüsselt)",
+	"memory.importNo":           "Abbrechen",
+	"memory.importNoDesc":       "Es wird nichts gelesen oder kopiert",
+	"memory.importCancelled":    "Import abgebrochen — nichts wurde kopiert.",
+	"memory.imported":           "Importiert: %d",
+	"memory.exported":           "%d Datei(en) exportiert nach %s",
+	"memory.error":              "Speicher-Operation fehlgeschlagen: %v",
+
+	// === /project — привязка каталога к проекту ===
+	"hint.project":              "dieses Verzeichnis mit einem Projekt aus dem Web-Chat verbinden",
+	"project.usage":             "/project — Projektliste · bind <Name> — dieses Verzeichnis verbinden · unbind — trennen · on/off — Agent im Projekt aktivieren/deaktivieren",
+	"project.listHeader":        "Deine Projekte (● mit diesem Verzeichnis verbunden, ○ anderswo verbunden):",
+	"project.listHint":          "Verbinden: /project bind <Name>",
+	"project.none":              "Noch keine Projekte — lege eines im Web-Chat an.",
+	"project.defaultTag":        "[Standard]",
+	"project.bound":             "Projekt «%s» mit %s verbunden",
+	"project.unbound":           "Verbindung von %s gelöst",
+	"project.notBound":          "Mit %s ist kein Projekt verbunden",
+	"project.notFound":          "Projekt «%s» nicht gefunden. Verfügbar: %s",
+	"project.needLogin":         "ein ExecAI-Konto ist erforderlich — /login",
+	"project.error":             "Projekt-Operation fehlgeschlagen: %v",
+	"project.serveQuestion":     "Den Hintergrund-Listener starten, um Aufgaben aus dem Web-Chat anzunehmen?",
+	"project.serveYes":          "Starten",
+	"project.serveYesDesc":      "Tools richten sich nach deiner permissions.json; überlebt das Schließen des Terminals",
+	"project.serveReadOnly":     "Nur lesen",
+	"project.serveReadOnlyDesc": "darf schauen, aber keine Dateien ändern und keine Kommandos ausführen",
+	"project.serveNo":           "Jetzt nicht",
+	"project.serveNoDesc":       "später von Hand: execai serve",
+	"project.serveStarted":      "▶ Listener gestartet (pid %d). Status: execai serve --status · stoppen: --stop",
+	"project.serveLog":          "  Ausgabe: %s",
+	"project.serveSkipped":      "Listener nicht gestartet — Web-Aufgaben warten in der Queue. Starten: execai serve",
+	"project.serveFailed":       "Listener konnte nicht gestartet werden: %v",
+	"project.serveAlready":      "▶ Listener läuft bereits (pid %d)",
+	"project.agentOn":           "[Agent an]",
+	"project.agentOff":          "[Agent AUS]",
+	"project.enabled":           "Agent «%s» im Projekt «%s» aktiviert — er übernimmt Aufgaben von dort",
+	"project.disabled":          "Agent «%s» im Projekt «%s» deaktiviert — er übernimmt keine Aufgaben von dort",
+	"project.notAgent":          "Diese Sitzung ist kein Agent, es gibt nichts hinzuzufügen. Melde dich mit /login auf dem Rechner selbst an.",
+	"project.notInProject":      "Der Agent gehört nicht zum Projekt «%s» — führe zuerst /project bind aus",
+	"project.boundNoTool":       "Verzeichnis %[2]s ist mit Projekt «%[1]s» verbunden, aber das Hinzufügen des Agenten zum Projekt schlug fehl: %[3]v",
+}
+
+func init() {
+	i18n.Register("de", deMiscMessages)
+}

@@ -1,0 +1,28 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+*.local
+
+# Build / deps
+node_modules/
+dist/
+build/
+__pycache__/
+*.pyc
+.venv/
+venv/
+target/
+/bin/
+
+# Артефакты самопрогона: логи, снимки, временные профили редактора.
+.selftest/
+scripts/selftest/node_modules/
