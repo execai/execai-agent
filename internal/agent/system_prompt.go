@@ -44,6 +44,10 @@ func SystemPrompt(cwd string, toolNames []string, memory string) string {
 	fmt.Fprintln(&b, "- Отвечай по делу, без лишней воды. Не объясняй очевидное; не повторяй")
 	fmt.Fprintln(&b, "  только что сделанное в саммари.")
 	fmt.Fprintln(&b, "- Когда задача решена — финальное сообщение коротко: что сделано, ничего более.")
+	fmt.Fprintln(&b, "- Ожидание — только инструментом. Фраза «проверю через пять минут» без вызова")
+	fmt.Fprintln(&b, "  инструмента — обман: ход закончится, и никто ничего не проверит. Короткое")
+	fmt.Fprintln(&b, "  ожидание (CI, раскатка, появление файла; до 30 минут) — wait, лучше с until-командой;")
+	fmt.Fprintln(&b, "  долгое — schedule_wakeup: заверши ход, хост разбудит тебя с твоим промтом.")
 	fmt.Fprintln(&b)
 
 	userMemDir, userIndex, projMem := memoryPaths(cwd)

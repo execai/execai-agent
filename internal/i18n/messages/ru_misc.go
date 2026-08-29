@@ -27,6 +27,13 @@ var ruMiscMessages = map[string]string{
 	"ui.stream.tokenExpiredFlow": "Токен ExecAI истёк — стартую device-flow. Подтверди в браузере.",
 
 	// === /compact ===
+	"ui.compact.autoStart":   "⚙ Контекст заполнен на %d%% — автосжатие истории…",
+	"ui.autocompact.status":  "автосжатие: порог %d%% окна, сейчас занято %d%%. /autocompact <50..95|off>",
+	"ui.autocompact.set":     "автосжатие: порог %d%% окна",
+	"ui.autocompact.off":     "автосжатие выключено (вернуть: /autocompact 80)",
+	"ui.autocompact.bad":     "нужно число 50..95 или off: /autocompact 80",
+	"hint.autocompact":       "порог автосжатия контекста (50..95 или off)",
+	"status.ctx":             "ctx",
 	"ui.compact.historyNote": "[Сжатая история ранее (%d сообщений): %s]",
 	"ui.compact.done":        "📦 История сжата: %d сообщений → 1 summary (~%d симв.)",
 	"ui.compact.working":     "сжимаю историю…",

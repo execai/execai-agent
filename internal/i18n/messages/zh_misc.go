@@ -26,6 +26,13 @@ var zhMiscMessages = map[string]string{
 	"ui.stream.tokenExpiredFlow": "ExecAI 令牌已过期 — 正在启动 device-flow。请在浏览器中确认。",
 
 	// === /compact ===
+	"ui.compact.autoStart":   "⚙ 上下文已占用 %d%% — 正在自动压缩历史…",
+	"ui.autocompact.status":  "自动压缩：阈值为窗口的 %d%%，当前已用 %d%%。/autocompact <50..95|off>",
+	"ui.autocompact.set":     "自动压缩：阈值为窗口的 %d%%",
+	"ui.autocompact.off":     "自动压缩已关闭（恢复：/autocompact 80）",
+	"ui.autocompact.bad":     "需要 50..95 或 off：/autocompact 80",
+	"hint.autocompact":       "上下文自动压缩阈值（50..95 或 off）",
+	"status.ctx":             "ctx",
 	"ui.compact.historyNote": "[此前已压缩的历史（%d 条消息）：%s]",
 	"ui.compact.done":        "📦 历史已压缩：%d 条消息 → 1 份摘要（约 %d 字符）",
 	"ui.compact.working":     "正在压缩历史…",

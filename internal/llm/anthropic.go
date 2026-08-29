@@ -60,7 +60,7 @@ func NewAnthropicClient(baseURL, apiKey, model string, thinkingBudget int) *Anth
 		Model:          model,
 		ThinkingBudget: thinkingBudget,
 		SourceLabel:    source,
-		HTTP:           &http.Client{Timeout: 10 * time.Minute},
+		HTTP:           newStreamHTTPClient(10 * time.Minute),
 	}
 }
 
@@ -148,6 +148,10 @@ func (c *AnthropicClient) Stream(ctx context.Context, messages []AIMessage, tool
 	}
 
 	res, modelReturned, usage, err := readAnthropicSSEFull(resp.Body, cb)
+	if res != nil {
+		// Полный входной контекст = свежие токены + прочитанный и созданный кэш.
+		res.PromptTokens = usage.InputTokens + usage.CacheReadTokens + usage.CacheCreateTokens
+	}
 	// Log which model actually responded (server-side mapping in Z.ai).
 	src := c.SourceLabel
 	if src == "" {

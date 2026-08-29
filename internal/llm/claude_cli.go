@@ -95,6 +95,9 @@ func (c *ClaudeCLIClient) Stream(ctx context.Context, messages []AIMessage, tool
 		CacheReadTokens:   usage.CacheReadTokens,
 		CacheCreateTokens: usage.CacheCreateTokens,
 	})
+	if res != nil {
+		res.PromptTokens = usage.InputTokens + usage.CacheReadTokens + usage.CacheCreateTokens
+	}
 	return res, nil
 }
 

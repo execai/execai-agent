@@ -64,6 +64,11 @@ type Agent struct {
 	// Maximum number of tool-use loop iterations, so the model does not loop forever.
 	MaxIterations int
 
+	// LastPromptTokens — входной контекст последнего LLM-вызова по usage
+	// провайдера (0 = usage не приходил). Заполняется циклом Run; снаружи
+	// читать только после его возврата.
+	LastPromptTokens int
+
 	// allowedTools — tools for which the user chose "always allow in this
 	// session". Reset when the CLI restarts.
 	allowedTools     map[string]bool
@@ -133,6 +138,11 @@ func (a *Agent) RunWithFiles(ctx context.Context, history []llm.AIMessage, userM
 		res, err := a.Client.Stream(ctx, out, defsRaw, cb)
 		if err != nil {
 			return out, err
+		}
+		if res.PromptTokens > 0 {
+			// Последний известный размер контекста: снаружи по нему решают,
+			// пора ли сжимать историю. Читается после возврата Run.
+			a.LastPromptTokens = res.PromptTokens
 		}
 
 		// Append the assistant message to the history as-is.

@@ -427,6 +427,52 @@ async function main() {
   // 7. Настоящий ход: кнопки меняются местами, спиннер крутится.
   //
   // Без входа провайдера нет, и ход не начнётся: это не дефект панели.
+  // 6d. Несколько чатов: бейджи на вкладках, переключение во время хода,
+  // пробуждение. Маршрутизацию по chat делает расширение (и её гоняет этап
+  // multi на уровне агента); здесь — что панель РИСУЕТ из его событий.
+  await inFrame(`(() => {
+    W.postMessage({ type: 'chats', chats: [{ id: 'm1', label: 'первый', active: true }, { id: 'm2', label: 'второй', busy: true }] }, '*');
+    W.postMessage({ type: 'chat_flags', flags: { m2: { busy: true }, m1: { unseen: true } } }, '*');
+    return 1; })()`);
+  await sleep(600);
+  const badges = await inFrame(`JSON.stringify({
+    busy: D.querySelectorAll('#tabs .tab[data-chat="m2"] b.busy').length,
+    unseenOnActive: D.querySelectorAll('#tabs .tab[data-chat="m1"] b.unseen').length,
+  })`);
+  const B = JSON.parse(badges || '{}');
+  check(B.busy === 1, 'занятый чужой чат помечен бейджем на вкладке', badges);
+  check(B.unseenOnActive === 0, 'активная вкладка не носит «непрочитано»', badges);
+  // Ход в текущем чате, потом chat_loaded другого: занятость снимается (она
+  // принадлежит чату, который мы покинули), а ask/wake рисуются из события.
+  await inFrame(`(() => {
+    W.postMessage({ type: 'turn_start', chat: 'm1' }, '*');
+    W.postMessage({ type: 'chat_loaded', chat: 'm2', msgs: [{ role: 'user', text: 'привет' }], at: '2099-01-01T10:00:00Z', text: 'жду CI' }, '*');
+    return 1; })()`);
+  await sleep(600);
+  const sw = await inFrame(`JSON.stringify({
+    busy: D.body.classList.contains('busy'),
+    wake: D.querySelectorAll('#log .wake button').length,
+  })`);
+  const SW = JSON.parse(sw || '{}');
+  check(SW.busy === false, 'переключение чата снимает занятость покинутого', sw);
+  check(SW.wake === 2, 'строка пробуждения с кнопками «Сейчас» и «Отменить»', sw);
+  await inFrame(`(() => {
+    W.postMessage({ type: 'wakeup_cancelled', chat: 'm2' }, '*');
+    W.postMessage({ type: 'turn_start', chat: 'm2' }, '*');
+    W.postMessage({ type: 'auto_user', chat: 'm2', text: 'после сна проверь' }, '*');
+    W.postMessage({ type: 'text_delta', chat: 'm2', text: 'проснулся' }, '*');
+    W.postMessage({ type: 'done', chat: 'm2', elapsed: 1 }, '*');
+    return 1; })()`);
+  await sleep(800);
+  const wk = await inFrame(`JSON.stringify({
+    wakeLeft: D.querySelectorAll('#log .wake').length,
+    auto: D.querySelectorAll('#log .msg.user.auto').length,
+    busy: D.body.classList.contains('busy'),
+  })`);
+  const WK = JSON.parse(wk || '{}');
+  check(WK.wakeLeft === 0 && WK.auto === 1, 'отмена убирает строку пробуждения, автоход виден как реплика', wk);
+  check(WK.busy === false, 'после автохода занятость снята', wk);
+
   // Прогон по умолчанию не тратит токены владельца — включается явно.
   const signedIn = !!(await inFrame(`!!(D.getElementById('status')?.dataset?.user)`))
     || !(await inFrame(`D.getElementById('status')?.textContent || ''`))

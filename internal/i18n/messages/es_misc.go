@@ -26,6 +26,13 @@ var esMiscMessages = map[string]string{
 	"ui.stream.tokenExpiredFlow": "El token de ExecAI ha caducado — iniciando device-flow. Confirma en el navegador.",
 
 	// === /compact ===
+	"ui.compact.autoStart":   "⚙ Contexto al %d%% — compactando el historial automáticamente…",
+	"ui.autocompact.status":  "auto-compactación: umbral %d%% de la ventana, ahora %d%% en uso. /autocompact <50..95|off>",
+	"ui.autocompact.set":     "auto-compactación: umbral %d%% de la ventana",
+	"ui.autocompact.off":     "auto-compactación desactivada (restaurar: /autocompact 80)",
+	"ui.autocompact.bad":     "se espera 50..95 u off: /autocompact 80",
+	"hint.autocompact":       "umbral de auto-compactación (50..95 u off)",
+	"status.ctx":             "ctx",
 	"ui.compact.historyNote": "[Historial compactado anteriormente (%d mensajes): %s]",
 	"ui.compact.done":        "📦 Historial compactado: %d mensajes → 1 resumen (~%d caracteres)",
 	"ui.compact.working":     "compactando el historial…",

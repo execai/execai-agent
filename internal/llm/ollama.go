@@ -57,7 +57,7 @@ func NewOllamaClient(baseURL, model string) *OllamaClient {
 	return &OllamaClient{
 		BaseURL: baseURL,
 		Model:   model,
-		HTTP:    &http.Client{Timeout: 30 * time.Minute}, // local models may take a long time to generate
+		HTTP:    &http.Client{Timeout: 30 * time.Minute}, // local models may take a long time to generate (incl. model load before first byte)
 	}
 }
 

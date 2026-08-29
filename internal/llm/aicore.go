@@ -108,7 +108,7 @@ func NewAICoreClient(apiBase, token, model, provider string) *AICoreClient {
 		Token:    token,
 		Model:    model,
 		Provider: provider,
-		HTTP:     &http.Client{Timeout: 10 * time.Minute},
+		HTTP:     newStreamHTTPClient(10 * time.Minute),
 	}
 }
 
@@ -118,6 +118,10 @@ type StreamResult struct {
 	Content      string
 	ToolCalls    []ToolCall
 	FinishReason string
+	// PromptTokens — сколько токенов занял ВЕСЬ отправленный контекст по
+	// usage провайдера (вход + кэш). 0 = провайдер usage не отдал; тогда
+	// заполненность окна считается оценкой (compact.EstimateTokens).
+	PromptTokens int
 }
 
 // StreamCallbacks — UI callbacks (showing text deltas and tool_call starts).

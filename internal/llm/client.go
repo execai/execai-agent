@@ -73,7 +73,7 @@ func New(apiBase, token, model, provider string) *Client {
 		Token:    token,
 		Model:    model,
 		Provider: provider,
-		HTTP:     &http.Client{Timeout: 5 * time.Minute},
+		HTTP:     newStreamHTTPClient(5 * time.Minute),
 	}
 }
 

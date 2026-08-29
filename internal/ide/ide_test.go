@@ -13,6 +13,7 @@ import (
 
 	"github.com/velesbsdllc/agent-vbai/internal/agent"
 	"github.com/velesbsdllc/agent-vbai/internal/config"
+	"github.com/velesbsdllc/agent-vbai/internal/llm"
 )
 
 // Ответ из редактора обязан значить РОВНО то же, что кнопка TUI и веб-чата:
@@ -31,9 +32,9 @@ func TestIdeApprover_Vocabulary(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.answer, func(t *testing.T) {
-			s := &session{enc: json.NewEncoder(&bytes.Buffer{}), answers: map[string]chan string{}}
-			ap := &ideApprover{s: s, sessionTools: map[string]bool{}, sessionExact: map[string]bool{}}
-			go answerFirstAsk(s, c.answer)
+			c0 := newTestChat()
+			ap := &ideApprover{c: c0, sessionTools: map[string]bool{}, sessionExact: map[string]bool{}}
+			go answerFirstAsk(c0.srv, c.answer)
 			got := ap.AskApprove("Bash", json.RawMessage(`{"command":"ls"}`), "ls")
 			if got != c.want {
 				t.Errorf("ответ %q дал %v, ожидалось %v", c.answer, got, c.want)
@@ -45,8 +46,9 @@ func TestIdeApprover_Vocabulary(t *testing.T) {
 // «Весь инструмент в сессии» и «эту команду в сессии» живут ДО new_chat и
 // не переспрашивают; description не рвёт точный ключ (канонизация).
 func TestIdeApprover_SessionScopes(t *testing.T) {
-	s := &session{enc: json.NewEncoder(&bytes.Buffer{}), answers: map[string]chan string{}}
-	ap := &ideApprover{s: s, sessionTools: map[string]bool{}, sessionExact: map[string]bool{}}
+	c := newTestChat()
+	s := c.srv
+	ap := &ideApprover{c: c, sessionTools: map[string]bool{}, sessionExact: map[string]bool{}}
 
 	go answerFirstAsk(s, "exact")
 	if d := ap.AskApprove("Bash", json.RawMessage(`{"command":"ls","description":"a"}`), "ls"); d != agent.ApproveOnce {
@@ -67,8 +69,14 @@ func TestIdeApprover_SessionScopes(t *testing.T) {
 	}
 }
 
+// newTestChat — чат на сервере, пишущем в никуда.
+func newTestChat() *chatSession {
+	srv := newServer(json.NewEncoder(&bytes.Buffer{}), "")
+	return srv.newChat("m", "p")
+}
+
 // answerFirstAsk ждёт появления вопроса и отвечает на него.
-func answerFirstAsk(s *session, value string) {
+func answerFirstAsk(s *server, value string) {
 	for i := 0; i < 200; i++ {
 		s.answersMu.Lock()
 		for id := range s.answers {
@@ -88,7 +96,7 @@ func TestStreamer_FilesChangedIsFactual(t *testing.T) {
 	dir := t.TempDir()
 	real := filepath.Join(dir, "real.txt")
 
-	st := &streamer{s: &session{enc: json.NewEncoder(&bytes.Buffer{})},
+	st := &streamer{c: newTestChat(),
 		changed: map[string]bool{}, turnStart: time.Now()}
 
 	// Отклонённый Write: файл не появился → в changed его нет.
@@ -189,5 +197,92 @@ func TestRun_NoCredentialsDoesNotPanic(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("Run не завершился на закрытом stdin")
+	}
+}
+
+// Регрессия: finishTurn звал cancel() ДО проверки ctx.Err(), поэтому ЛЮБАЯ
+// ошибка провайдера (неверный ключ, лимиты, кончился контекст, сеть)
+// уезжала в панель как done:"stopped" — без текста. Пользователь видел
+// молча остановившийся ход и не понимал, что случилось.
+func TestFinishTurn_ProviderErrorIsReported(t *testing.T) {
+	buf := &bytes.Buffer{}
+	srv := newServer(json.NewEncoder(buf), "")
+	c := srv.newChat("m", "p")
+	ctx, cancel := context.WithCancel(context.Background())
+	c.finishTurn(cancel, nil, fmt.Errorf("401 от Anthropic API — неверный ключ"), ctx,
+		time.Now(), nil, turnDeps{})
+	out := buf.String()
+	if !strings.Contains(out, "неверный ключ") {
+		t.Errorf("текст ошибки не дошёл до панели: %s", out)
+	}
+	if !strings.Contains(out, `"error"`) || strings.Contains(out, `"stopped"`) {
+		t.Errorf("ошибка провайдера ушла как stopped: %s", out)
+	}
+}
+
+// А настоящая остановка (человек нажал стоп) остаётся «stopped» — без
+// пугающего текста ошибки.
+func TestFinishTurn_UserStopIsStopped(t *testing.T) {
+	buf := &bytes.Buffer{}
+	srv := newServer(json.NewEncoder(buf), "")
+	c := srv.newChat("m", "p")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // стоп пришёл ДО завершения хода
+	c.finishTurn(cancel, nil, context.Canceled, ctx, time.Now(), nil, turnDeps{})
+	out := buf.String()
+	if !strings.Contains(out, `"stopped"`) {
+		t.Errorf("остановка не помечена stopped: %s", out)
+	}
+	if strings.Contains(out, `"error"`) {
+		t.Errorf("остановка человека показана как ошибка: %s", out)
+	}
+}
+
+type fakeSummarizer struct{ reply string }
+
+func (f *fakeSummarizer) Stream(_ context.Context, _ []llm.AIMessage, _ []map[string]any,
+	_ llm.StreamCallbacks) (*llm.StreamResult, error) {
+	return &llm.StreamResult{Content: f.reply}, nil
+}
+
+// В панели нет ручного /compact, поэтому за потолком окна следит сам ход:
+// перевалили порог — история сжимается до system+пересказ+хвост; ниже
+// порога — не трогается вовсе.
+func TestMaybeAutoCompact_IDE(t *testing.T) {
+	buf := &bytes.Buffer{}
+	srv := newServer(json.NewEncoder(buf), "")
+	c := srv.newChat("m", "p")
+	deps := turnDeps{cli: &fakeSummarizer{reply: "пересказ"}, modelID: "claude-sonnet-4-6",
+		autoCompactPct: 80}
+
+	hist := []llm.AIMessage{{Role: "system", Content: "SYS"}}
+	for i := 0; i < 12; i++ {
+		hist = append(hist, llm.AIMessage{Role: "user", Content: "x"})
+	}
+
+	// 100k из 200k окна — ниже порога, история нетронута.
+	if got := c.maybeAutoCompact(context.Background(), hist, deps, 100_000); len(got) != len(hist) {
+		t.Errorf("ниже порога, но история изменилась: %d → %d", len(hist), len(got))
+	}
+
+	// 180k из 200k — за порогом, ждём сжатие.
+	got := c.maybeAutoCompact(context.Background(), hist, deps, 180_000)
+	if len(got) >= len(hist) {
+		t.Fatalf("за порогом, но история не сжалась: %d → %d", len(hist), len(got))
+	}
+	if got[0].Role != "system" {
+		t.Errorf("системное сообщение потеряно: %+v", got[0])
+	}
+	if !strings.Contains(llm.ContentText(got[1].Content), "пересказ") {
+		t.Errorf("пересказ не вписан: %+v", got[1])
+	}
+	if !strings.Contains(buf.String(), "notice") {
+		t.Error("панель не уведомлена о сжатии")
+	}
+
+	// Порог 0 = выключено.
+	deps.autoCompactPct = 0
+	if got := c.maybeAutoCompact(context.Background(), hist, deps, 999_999); len(got) != len(hist) {
+		t.Error("автосжатие выключено, но сработало")
 	}
 }

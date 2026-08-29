@@ -184,6 +184,7 @@ Agent 会：
 | **Task** | 把独立的调研任务交给只读子智能体 |
 | **TodoWrite** | Agent 内部的任务规划器 |
 | **schedule_wakeup** | AI 自己安排 N 秒后唤醒（详见 [Autoloop](#loop-和-autoloop--重复与等待)） |
+| **wait** | 在本轮内等待：N 秒，或直到 shell 检查成功（`until`，每 `interval` 秒轮询一次；最长 30 分钟） |
 
 ---
 
@@ -335,6 +336,7 @@ ollama pull llama3.2               # 外部命令，你想跑什么就 pull 什�
 - **计费相互隔离。** 使用外部订阅时，ExecAI 计费**不会**扣你的钱。
 - **`/subscriptions`** — 查看已连接的订阅，`/disconnect <provider>` — 移除。
 - **`/source` 不带参数** — 快速选择器。
+- **`/provider`** 是 `/source` 的完整别名——用你先想到的那个词即可。
 
 ---
 
@@ -471,6 +473,17 @@ AI 会：
 **什么时候用哪个：**
 - `/loop` — 固定间隔，你已经知道要等多久
 - Autoloop — 让 AI 自己判断，你只需要描述任务
+
+---
+
+## 在编辑器中 — VS Code、Cursor、ExecAI Studio
+
+同一个 agent 也运行在 [VS Code / Cursor 扩展](https://marketplace.visualstudio.com/items?itemName=execai.execai) 和 [ExecAI Studio](https://github.com/execai/execai-studio) 中。自 R6.8x 起面板支持多聊天：
+
+- **聊天并行运行。** 每个聊天都是独立的会话，拥有自己的历史和权限。在某个聊天回答时切换标签是即时的——流在后台继续，回来时面板会从头重放本轮。同时最多运行 3 轮（`EXECAI_IDE_PARALLEL`），其余的等待空位并如实告知。
+- **标签徽标。** 闪烁的点——agent 正在那里工作；绿点——已完成但你还没看；`?`——等待你的回答（权限或 AskUser 问题）；⏰——已安排唤醒。当你在别处时完成或提问的聊天还会弹出带 **打开** 按钮的提示。
+- **唤醒在编辑器中同样有效。** 当模型调用 `schedule_wakeup` 时，聊天会显示「将于 14:05 唤醒 — 原因」并附 **立即** / **取消** 按钮，标签获得 ⏰。唤醒随聊天保存：关闭编辑器再打开——过期的立即触发，未来的恢复计时。
+- **用 `wait` 代替承诺。** 模型被要求绝不写「五分钟后我再检查」：它会调用 `wait`（短等待，在本轮内，可轮询命令）或 `schedule_wakeup`（长等待，释放聊天）。
 
 ---
 
@@ -616,6 +629,7 @@ execai serve
 | `/help` | 所有命令 |
 | `/model [id]` | 切换模型 |
 | `/source [name]` | 切换源（execai/zai/kimi/kimi-api/anthropic/openai/claude-cli/codex-cli/ollama） |
+| `/provider [name]` | `/source` 的完整别名——同样的菜单、同样的切换 |
 | `/connect <provider> [args...]` | 连接一个订阅。不带参数 — 显示帮助 |
 | `/disconnect <provider>` | 断开一个订阅 |
 | `/subscriptions`（或 `/subs`） | 列出所有连接 |
@@ -632,6 +646,7 @@ execai serve
 | `/sessions` | 列出所有会话 |
 | `/resume <num\|id>` | 打开已保存的会话 |
 | `/compact` | 通过 LLM 把历史压缩为摘要（用于长会话） |
+| `/autocompact [N\|off]` | 自动压缩阈值：历史在达到模型上下文窗口的 N% 时自动压缩（默认 80） |
 | `/cd <path>` | 切换工作目录 |
 | `/clear` | 清除历史（Ctrl+L） |
 | `/whoami` | 当前登录的是谁 |
@@ -675,6 +690,8 @@ execai serve
 `Ctrl+R` — 模糊搜索：输入任意关键词 → 会搜索所有会话的**标题和内容**。
 
 `/compact` — 如果会话太长导致上下文溢出，agent 会把较老的部分压缩成一段摘要，同时保留最后 6 轮。
+
+**自动压缩**会替你完成这件事：agent 跟踪模型上下文窗口的占用（有 provider usage 时用精确值，否则用保守估算；状态栏的 `ctx: NN%` 指示当前占用），越过阈值即自动压缩——默认 80%。用 `/autocompact 90` 调整，用 `/autocompact off` 关闭。切割点绝不会把工具调用与其结果分开，最后 6 条消息始终原样保留。编辑器面板（VS Code / Cursor / ExecAI Studio）同样生效。
 
 输入历史（`↑/↓`）也会保存到 `~/.config/execai/input_history` — 重启后依然存在。
 

@@ -56,7 +56,7 @@ func NewGLMClient(baseURL, apiKey, model string) *GLMClient {
 		APIKey:        apiKey,
 		Model:         model,
 		ProviderLabel: label,
-		HTTP:          &http.Client{Timeout: 10 * time.Minute},
+		HTTP:          newStreamHTTPClient(10 * time.Minute),
 	}
 }
 

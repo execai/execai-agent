@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -149,7 +150,21 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			fmt.Fprintf(os.Stderr, "инбокс недоступен (%v) — повтор через %s\n", err, backoff)
+			// 401 чаще всего означает не «сервер сломался», а «токен ротировался»:
+			// на этой же машине перелогинились в TUI, credentials.json обновился,
+			// а мы держим старый токен в памяти. Без перечитывания демон крутил бы
+			// вечный цикл 401 до ручного рестарта, а в вебе агент выглядел бы
+			// «подключён, но не отвечает».
+			if isUnauthorized(err) && reloadCredentials(cr) {
+				fmt.Fprintln(os.Stderr, "токен обновился на диске — продолжаю с новым")
+				backoff = time.Second
+				continue
+			}
+			hint := ""
+			if isUnauthorized(err) {
+				hint = " · токен отклонён — выполни на этой машине: execai → /login"
+			}
+			fmt.Fprintf(os.Stderr, "инбокс недоступен (%v)%s — повтор через %s\n", err, hint, backoff)
 			select {
 			case <-ctx.Done():
 				return nil
@@ -374,6 +389,24 @@ func postResult(ctx context.Context, cfg *config.Config, token, taskID, chunkTyp
 	}
 }
 
+// isUnauthorized — является ли ошибка ответом HTTP 401.
+func isUnauthorized(err error) bool {
+	var he *httpError
+	return errors.As(err, &he) && he.status == http.StatusUnauthorized
+}
+
+// reloadCredentials перечитывает credentials.json и возвращает true, если на
+// диске лежит другой токен. Обновляет cr на месте: указатель на эти креды
+// уже разошёлся по циклу задач.
+func reloadCredentials(cr *config.Credentials) bool {
+	fresh, err := config.LoadCredentials()
+	if err != nil || fresh == nil || fresh.Token == "" || fresh.Token == cr.Token {
+		return false
+	}
+	*cr = *fresh
+	return true
+}
+
 // trimBase — база API без хвостового слэша.
 func trimBase(base string) string { return strings.TrimRight(base, "/") }
 
@@ -403,10 +436,19 @@ func apiRequest(ctx context.Context, cfg *config.Config, token, method, path str
 	buf := new(bytes.Buffer)
 	_, _ = buf.ReadFrom(resp.Body)
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(buf.String()))
+		return nil, &httpError{status: resp.StatusCode, body: strings.TrimSpace(buf.String())}
 	}
 	return buf.Bytes(), nil
 }
+
+// httpError сохраняет статус ответа: по строке ошибки статус не различить,
+// а реакция на 401 (перечитать креды) отличается от реакции на 5xx (ждать).
+type httpError struct {
+	status int
+	body   string
+}
+
+func (e *httpError) Error() string { return fmt.Sprintf("HTTP %d: %s", e.status, e.body) }
 
 // extractPrompt достаёт текст задачи из payload.
 func extractPrompt(payload string) string {

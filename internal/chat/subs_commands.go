@@ -177,6 +177,14 @@ func pickPrimary(models []llm.Model) llm.Model {
 // handleSubsCommand handles /connect, /disconnect, /use, /subscriptions.
 // Returns (handled, statusMessage). If handled=false — the command is not ours.
 func (m *tuiModel) handleSubsCommand(cmd string) (bool, string) {
+	// /provider is a full synonym of /source: "провайдер" is the word users
+	// actually know, while "source" stays the internal id. One entity — the
+	// alias must never diverge in behavior, hence rewrite instead of cases.
+	if cmd == "/provider" {
+		cmd = "/source"
+	} else if strings.HasPrefix(cmd, "/provider ") {
+		cmd = "/source " + strings.TrimSpace(strings.TrimPrefix(cmd, "/provider "))
+	}
 	switch {
 	case cmd == "/subscriptions" || cmd == "/subs":
 		return true, m.formatSubsList()

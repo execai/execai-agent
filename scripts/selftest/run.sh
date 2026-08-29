@@ -15,7 +15,7 @@
 # Запуск:  scripts/selftest/run.sh [--fast] [--only <этап>]
 #   --fast  пропустить UI-этап (он самый долгий: поднимает редактор)
 #   --only  прогнать один этап:
-#           units | security | ide | loop | tui | serve | plugin | ui
+#           units | security | ide | multi | loop | tui | serve | plugin | ui
 set -uo pipefail
 
 AGENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -93,6 +93,16 @@ s_ide() {
   EXECAI_BIN="$ART/execai" WORKDIR="$ART/ws" python3 "$AGENT_DIR/scripts/selftest/ide_e2e.py"
 }
 
+s_multi() {
+  cd "$AGENT_DIR"
+  [ -x "$ART/execai" ] || go build -o "$ART/execai" ./cmd/execai || return 1
+  # Несколько чатов в одном процессе: ходы параллельно, переключение во время
+  # хода, стоп по чату, вопрос из чата, пробуждение по таймеру и его
+  # переживание рестарта. Свой конфиг с поддельным провайдером.
+  XDG_CONFIG_HOME="$ART/multi-conf" EXECAI_BIN="$ART/execai" WORKDIR="$ART/multi-ws" \
+    EXECAI_WAKEUP_MIN_SECONDS=1 python3 "$AGENT_DIR/scripts/selftest/ide_multi_e2e.py"
+}
+
 s_loop() {
   cd "$AGENT_DIR"
   [ -x "$ART/execai" ] || go build -o "$ART/execai" ./cmd/execai || return 1
@@ -132,6 +142,7 @@ echo "Самопрогон $RUN_ID → $ART"
 stage units    "сборка, go vet, все юнит-тесты"          s_units
 stage security "корпус обходов и матрица уровней"        s_security
 stage ide      "IDE-протокол сквозным пайпом"            s_ide
+stage multi    "несколько чатов: параллельные ходы, пробуждение" s_multi
 stage loop     "ход агента: инструмент, разрешение, отказ"  s_loop
 stage tui      "терминал: диалоги и команды в pty"      s_tui
 stage serve    "фоновый режим: задача из веба и вопрос"  s_serve

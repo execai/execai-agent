@@ -184,6 +184,7 @@ Navegación: ← → o Tab para mover el foco, Enter para confirmar, o los atajo
 | **Task** | Delega una investigación autónoma a un subagente de solo lectura |
 | **TodoWrite** | Planificador de tareas interno del agente |
 | **schedule_wakeup** | La IA programa su propio despertar en N segundos (ver [Autoloop](#loop-y-autoloop--repetir-y-esperar)) |
+| **wait** | Espera dentro del turno: N segundos o hasta que una comprobación de shell tenga éxito (`until`, sondeada cada `interval` s; hasta 30 min) |
 
 ---
 
@@ -335,6 +336,7 @@ El catálogo se extrae dinámicamente vía `/api/tags`. 0 ₽. Endpoint compatib
 - **La facturación queda aislada.** Con una suscripción externa, la facturación de ExecAI NO te cobra.
 - **`/subscriptions`**: qué está conectado, `/disconnect <provider>`: eliminar.
 - **`/source` sin argumento**: selector rápido.
+- **`/provider`** es un alias completo de `/source`: usa la palabra que te venga primero.
 
 ---
 
@@ -471,6 +473,17 @@ Si la IA decide que la tarea está hecha, simplemente no llama a `schedule_wakeu
 **Cuándo usar cuál:**
 - `/loop`: intervalo fijo, ya sabes cuánto hay que esperar
 - Autoloop: la IA lo averigua, tú solo describes la tarea
+
+---
+
+## En el editor — VS Code, Cursor, ExecAI Studio
+
+El mismo agente corre dentro de la [extensión de VS Code / Cursor](https://marketplace.visualstudio.com/items?itemName=execai.execai) y de [ExecAI Studio](https://github.com/execai/execai-studio). Desde R6.8x el panel es multichat:
+
+- **Los chats corren en paralelo.** Cada chat es su propia sesión con su historial y permisos. Cambiar de pestaña mientras un chat responde es instantáneo: el flujo sigue en segundo plano y, al volver, el panel repite el turno desde el principio. Hasta 3 turnos a la vez (`EXECAI_IDE_PARALLEL`); el resto espera un hueco y lo dice.
+- **Insignias en las pestañas.** Punto pulsante — el agente trabaja ahí; punto verde — terminó y aún no lo has mirado; `?` — espera tu respuesta (un permiso o una pregunta AskUser); ⏰ — hay un despertar programado. Un chat que termina o pregunta mientras estás en otro también muestra un aviso con el botón **Abrir**.
+- **Los despertares también funcionan en el editor.** Cuando el modelo llama a `schedule_wakeup`, el chat muestra «despertará a las 14:05 — motivo» con botones **Ahora** / **Cancelar**, y la pestaña recibe ⏰. El despertar se guarda con el chat: cierra el editor y vuelve a abrirlo — uno vencido se dispara al instante, uno futuro recupera su temporizador.
+- **`wait` en vez de promesas.** Al modelo se le indica no escribir nunca «lo compruebo en cinco minutos»: llama a `wait` (esperas cortas dentro del turno, opcionalmente sondeando un comando) o a `schedule_wakeup` (esperas largas; el chat queda libre).
 
 ---
 
@@ -618,6 +631,7 @@ Muestra cosas distintas según el `/source` activo:
 | `/help` | Todos los comandos |
 | `/model [id]` | Cambia el modelo |
 | `/source [name]` | Cambia la fuente (execai/zai/kimi/kimi-api/anthropic/openai/claude-cli/codex-cli/ollama) |
+| `/provider [name]` | Alias completo de `/source`: mismo menú, mismo cambio |
 | `/connect <provider> [args...]` | Conecta una suscripción. Sin args — ayuda |
 | `/disconnect <provider>` | Desconecta una suscripción |
 | `/subscriptions` (o `/subs`) | Lista de conexiones |
@@ -634,6 +648,7 @@ Muestra cosas distintas según el `/source` activo:
 | `/sessions` | Lista de conversaciones |
 | `/resume <num\|id>` | Abre una conversación guardada |
 | `/compact` | Compacta el historial en un resumen vía LLM (para conversaciones largas) |
+| `/autocompact [N\|off]` | Umbral de auto-compactación: el historial se compacta solo al llegar al N% de la ventana de contexto (por defecto 80) |
 | `/cd <path>` | Cambia el directorio de trabajo |
 | `/clear` | Limpia el historial (Ctrl+L) |
 | `/whoami` | Quién ha iniciado sesión |
@@ -677,6 +692,8 @@ Cada conversación se autoguarda en `~/.config/execai/sessions/<uuid>.json` tras
 `Ctrl+R`: búsqueda fuzzy — escribe cualquier palabra y busca tanto en títulos COMO en el contenido de cada conversación.
 
 `/compact`: si una conversación se alarga demasiado y el contexto desborda, el agente comprime la parte más antigua en un único resumen manteniendo los últimos 6 turnos.
+
+**La auto-compactación** lo hace por ti: el agente vigila el llenado de la ventana de contexto del modelo (usage exacto del proveedor cuando existe, estimación conservadora en caso contrario; el indicador `ctx: NN%` de la barra de estado muestra el llenado actual) y compacta automáticamente al cruzar el umbral — 80% por defecto. Ajústalo con `/autocompact 90`, desactívalo con `/autocompact off`. El corte nunca separa una llamada de herramienta de su resultado, y los últimos 6 mensajes siempre sobreviven intactos. Funciona también en el panel del editor (VS Code / Cursor / ExecAI Studio).
 
 El historial de entrada (`↑/↓`) también se guarda en `~/.config/execai/input_history`: sobrevive a los reinicios.
 

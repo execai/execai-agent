@@ -27,6 +27,13 @@ var enMiscMessages = map[string]string{
 	"ui.stream.tokenExpiredFlow": "ExecAI token expired — starting device-flow. Confirm in your browser.",
 
 	// === /compact ===
+	"ui.compact.autoStart":   "⚙ Context is %d%% full — auto-compacting history…",
+	"ui.autocompact.status":  "auto-compact: threshold %d%% of the window, currently %d%% used. /autocompact <50..95|off>",
+	"ui.autocompact.set":     "auto-compact: threshold %d%% of the window",
+	"ui.autocompact.off":     "auto-compact disabled (restore: /autocompact 80)",
+	"ui.autocompact.bad":     "expected 50..95 or off: /autocompact 80",
+	"hint.autocompact":       "auto-compact threshold (50..95 or off)",
+	"status.ctx":             "ctx",
 	"ui.compact.historyNote": "[History compacted earlier (%d messages): %s]",
 	"ui.compact.done":        "📦 History compacted: %d messages → 1 summary (~%d chars)",
 	"ui.compact.working":     "compacting history…",

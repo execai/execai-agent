@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"testing"
 
 	"github.com/velesbsdllc/agent-vbai/internal/config"
@@ -229,5 +230,80 @@ func TestPickPrimary(t *testing.T) {
 	}
 	if pickPrimary([]llm.Model{{ID: "x"}, {ID: "y"}}).ID != "x" {
 		t.Error("без IsPrimary берём первую")
+	}
+}
+
+// /provider — полный синоним /source: одно и то же меню и одинаковое
+// переключение. Алиас переписывается в /source на входе, поэтому любое
+// расхождение в поведении — регрессия.
+func TestProviderAlias_EqualsSource(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	a, b := newTestModel(), newTestModel()
+	okA, listA := a.handleSubsCommand("/source")
+	okB, listB := b.handleSubsCommand("/provider")
+	if !okA || !okB {
+		t.Fatalf("команда не распознана: /source=%v /provider=%v", okA, okB)
+	}
+	if listA != listB {
+		t.Errorf("списки различаются:\n/source:\n%s\n/provider:\n%s", listA, listB)
+	}
+
+	m := newTestModel()
+	if handled, _ := m.handleSubsCommand("/provider zai"); !handled {
+		t.Fatal("/provider zai не распознан")
+	}
+	if m.current.Provider != "zai" || m.subs.Active != "zai" {
+		t.Fatalf("после /provider zai ждали активный zai, имеем subs=%q model=%+v",
+			m.subs.Active, m.current)
+	}
+}
+
+// fakeLLM — детерминированный клиент для тестов сжатия.
+type fakeLLM struct{ reply string }
+
+func (f *fakeLLM) Stream(_ context.Context, _ []llm.AIMessage, _ []map[string]any,
+	_ llm.StreamCallbacks) (*llm.StreamResult, error) {
+	return &llm.StreamResult{Content: f.reply}, nil
+}
+
+// Автосжатие срабатывает строго за порогом, один раз, и не трогает короткую
+// историю. Логика порога — единственное место, где решается «сжимать или нет».
+func TestMaybeAutoCompact_Threshold(t *testing.T) {
+	m := newTestModel()
+	m.cli = &fakeLLM{reply: "пересказ"}
+	for i := 0; i < 12; i++ {
+		m.history = append(m.history, llm.AIMessage{Role: "user", Content: "x"})
+	}
+
+	m.ctxPct = 79
+	if cmd := m.maybeAutoCompact(); cmd != nil {
+		t.Error("79% при пороге 80 — сжатие запускаться не должно")
+	}
+	m.ctxPct = 81
+	cmd := m.maybeAutoCompact()
+	if cmd == nil {
+		t.Fatal("81% при пороге 80 — сжатие обязано запуститься")
+	}
+	if !m.compacting {
+		t.Error("флаг compacting не взведён — второй запуск не заблокирован")
+	}
+	if again := m.maybeAutoCompact(); again != nil {
+		t.Error("повторный запуск при идущем сжатии")
+	}
+	if done, ok := cmd().(compactDoneMsg); !ok || done.err != nil {
+		t.Errorf("сжатие не отработало: %+v", done)
+	}
+
+	// Выключатель уважается.
+	m2 := newTestModel()
+	m2.cli = &fakeLLM{reply: "s"}
+	m2.cfg.AutoCompactPercent = -1
+	m2.ctxPct = 99
+	for i := 0; i < 12; i++ {
+		m2.history = append(m2.history, llm.AIMessage{Role: "user", Content: "x"})
+	}
+	if cmd := m2.maybeAutoCompact(); cmd != nil {
+		t.Error("автосжатие выключено, но запустилось")
 	}
 }

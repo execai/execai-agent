@@ -29,6 +29,10 @@ type Config struct {
 	// выход за каталог проекта, чтение секретов, сетевые запросы.
 	// Дыры уровнем не регулируются — их нет ни на одном (см. internal/security).
 	SecurityLevel string `json:"security_level,omitempty"`
+	// AutoCompactPercent — порог автосжатия истории в процентах окна
+	// контекста. 0 = дефолт (80), -1 = выключено. Команда /autocompact.
+	AutoCompactPercent int `json:"auto_compact_percent,omitempty"`
+
 	// MaxIterations is how many consecutive tool-use iterations the agent may
 	// run in a single turn. When exhausted, a soft stop marker is inserted; the
 	// user can say 'continue' and the loop runs the same amount again. 0 = default (50).
@@ -53,6 +57,25 @@ func (c *Config) GetMaxIterations() int {
 		return 50
 	}
 	return c.MaxIterations
+}
+
+// GetAutoCompactPercent — действующий порог автосжатия (0 = выключено).
+// Дефолт 80%: раньше — жалко живого контекста, позже — тяжёлый ход
+// (вложения, длинный вывод инструмента) упрётся в потолок до сжатия.
+func (c *Config) GetAutoCompactPercent() int {
+	if c == nil || c.AutoCompactPercent == 0 {
+		return 80
+	}
+	if c.AutoCompactPercent < 0 {
+		return 0
+	}
+	if c.AutoCompactPercent < 50 {
+		return 50 // ниже — сжатие зациклится: пересказ+хвост сами весят проценты
+	}
+	if c.AutoCompactPercent > 95 {
+		return 95
+	}
+	return c.AutoCompactPercent
 }
 
 type Credentials struct {

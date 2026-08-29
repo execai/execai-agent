@@ -105,6 +105,7 @@ func Default(cwd string) *Registry {
 	r.Register(&WebSearchTool{})
 	r.Register(&TodoWriteTool{})
 	r.Register(&ScheduleWakeupTool{})
+	r.Register(&WaitTool{cwd: cwd})
 	r.Register(&AskUserTool{})
 	r.Register(&TaskTool{})
 	return r

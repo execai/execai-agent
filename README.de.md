@@ -184,6 +184,7 @@ Navigation: ← → oder Tab zum Fokus wechseln, Enter zum Bestätigen, oder die
 | **Task** | Übergibt eine abgeschlossene Recherche an einen Nur-Lese-Subagenten |
 | **TodoWrite** | Interner Aufgaben-Planner des Agenten |
 | **schedule_wakeup** | Die KI plant ihr eigenes Aufwachen in N Sekunden (siehe [Autoloop](#loop-und-autoloop--wiederholen-und-warten)) |
+| **wait** | Wartet innerhalb des Zuges: N Sekunden oder bis ein Shell-Check gelingt (`until`, alle `interval` s geprüft; bis 30 Min.) |
 
 ---
 
@@ -335,6 +336,7 @@ Der Katalog wird dynamisch über `/api/tags` gezogen. 0 ₽. OpenAI-kompatibler 
 - **Die Abrechnung ist isoliert.** Auf einem externen Abo stellt dir die ExecAI-Abrechnung NICHTS in Rechnung.
 - **`/subscriptions`** — was verbunden ist, `/disconnect <provider>` — entfernen.
 - **`/source` ohne Argument** — Quick-Picker.
+- **`/provider`** ist ein voller Alias von `/source` — nimm das Wort, das dir zuerst einfällt.
 
 ---
 
@@ -471,6 +473,17 @@ Wenn die KI entscheidet, dass die Aufgabe erledigt ist — ruft sie einfach kein
 **Wann was nutzen:**
 - `/loop` — ein festes Intervall, du weißt schon, wie lange du warten musst
 - Autoloop — die KI findet es raus, du beschreibst nur die Aufgabe
+
+---
+
+## Im Editor — VS Code, Cursor, ExecAI Studio
+
+Derselbe Agent läuft in der [VS-Code-/Cursor-Erweiterung](https://marketplace.visualstudio.com/items?itemName=execai.execai) und in [ExecAI Studio](https://github.com/execai/execai-studio). Seit R6.8x ist das Panel mehrchat-fähig:
+
+- **Chats laufen parallel.** Jeder Chat ist eine eigene Sitzung mit eigener Historie und eigenen Berechtigungen. Der Tab-Wechsel während einer Antwort ist sofort — der Stream läuft im Hintergrund weiter, beim Zurückkommen spielt das Panel den Zug von Anfang an ab. Bis zu 3 Züge gleichzeitig (`EXECAI_IDE_PARALLEL`); die übrigen warten auf einen Slot und sagen das auch.
+- **Tab-Badges.** Pulsierender Punkt — der Agent arbeitet dort; grüner Punkt — fertig, noch nicht angesehen; `?` — wartet auf deine Antwort (Berechtigung oder AskUser-Frage); ⏰ — ein Aufwachen ist geplant. Ein Chat, der fertig wird oder fragt, während du woanders bist, zeigt zusätzlich einen Toast mit **Öffnen**.
+- **Aufwachen funktioniert auch im Editor.** Ruft das Modell `schedule_wakeup` auf, zeigt der Chat «wacht um 14:05 auf — Grund» mit **Jetzt** / **Abbrechen**, der Tab bekommt ⏰. Das Aufwachen wird mit dem Chat gespeichert: Editor schließen und wieder öffnen — ein überfälliges feuert sofort, ein künftiges bekommt seinen Timer zurück.
+- **`wait` statt Versprechen.** Das Modell darf nie «ich prüfe in fünf Minuten» schreiben: Es ruft `wait` (kurze Wartezeiten im Zug, optional mit Befehls-Polling) oder `schedule_wakeup` (lange Wartezeiten, der Chat wird freigegeben).
 
 ---
 
@@ -618,6 +631,7 @@ Zeigt Verschiedenes, je nach aktiver `/source`:
 | `/help` | Alle Befehle |
 | `/model [id]` | Modell wechseln |
 | `/source [name]` | Source wechseln (execai/zai/kimi/kimi-api/anthropic/openai/claude-cli/codex-cli/ollama) |
+| `/provider [name]` | Voller Alias von `/source` — gleiches Menü, gleicher Wechsel |
 | `/connect <provider> [args...]` | Ein Abo verbinden. Ohne Args — Hilfe |
 | `/disconnect <provider>` | Ein Abo trennen |
 | `/subscriptions` (oder `/subs`) | Verbindungen auflisten |
@@ -634,6 +648,7 @@ Zeigt Verschiedenes, je nach aktiver `/source`:
 | `/sessions` | Liste der Conversations |
 | `/resume <num\|id>` | Eine gespeicherte Conversation öffnen |
 | `/compact` | History per LLM in eine Zusammenfassung verdichten (für lange Conversations) |
+| `/autocompact [N\|off]` | Schwelle der Auto-Kompaktierung: die History wird bei N% des Kontextfensters automatisch verdichtet (Standard 80) |
 | `/cd <path>` | Working Directory wechseln |
 | `/clear` | History leeren (Ctrl+L) |
 | `/whoami` | Wer eingeloggt ist |
@@ -677,6 +692,8 @@ Jede Conversation wird nach jedem Austausch automatisch nach `~/.config/execai/s
 `Ctrl+R` — Fuzzy-Suche: tipp irgendein Wort → sie sucht sowohl in Titeln ALS AUCH in den Inhalten jeder Conversation.
 
 `/compact` — wenn eine Conversation zu lang wird und der Kontext überläuft, komprimiert der Agent den älteren Teil in eine einzige Zusammenfassung und behält die letzten 6 Turns.
+
+**Auto-Kompaktierung** übernimmt das automatisch: der Agent verfolgt den Füllstand des Kontextfensters (exakte Provider-Usage wo verfügbar, sonst eine konservative Schätzung; die Anzeige `ctx: NN%` in der Statusleiste zeigt den aktuellen Stand) und verdichtet die History automatisch beim Überschreiten der Schwelle — standardmäßig 80%. Einstellen: `/autocompact 90`, abschalten: `/autocompact off`. Der Schnitt trennt niemals einen Tool-Aufruf von seinem Ergebnis, die letzten 6 Nachrichten bleiben immer erhalten. Funktioniert auch im Editor-Panel (VS Code / Cursor / ExecAI Studio).
 
 Der Eingabe-Verlauf (`↑/↓`) wird ebenfalls in `~/.config/execai/input_history` gespeichert — er überlebt Neustarts.
 

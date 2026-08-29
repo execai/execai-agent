@@ -26,6 +26,13 @@ var deMiscMessages = map[string]string{
 	"ui.stream.tokenExpiredFlow": "ExecAI-Token abgelaufen — starte Device-Flow. Bestätige im Browser.",
 
 	// === /compact ===
+	"ui.compact.autoStart":   "⚙ Kontext zu %d%% voll — Verlauf wird automatisch komprimiert…",
+	"ui.autocompact.status":  "Auto-Kompaktierung: Schwelle %d%% des Fensters, aktuell %d%% belegt. /autocompact <50..95|off>",
+	"ui.autocompact.set":     "Auto-Kompaktierung: Schwelle %d%% des Fensters",
+	"ui.autocompact.off":     "Auto-Kompaktierung aus (zurück: /autocompact 80)",
+	"ui.autocompact.bad":     "erwartet 50..95 oder off: /autocompact 80",
+	"hint.autocompact":       "Schwelle der Auto-Kompaktierung (50..95 oder off)",
+	"status.ctx":             "ctx",
 	"ui.compact.historyNote": "[Verlauf zuvor komprimiert (%d Nachrichten): %s]",
 	"ui.compact.done":        "📦 Verlauf komprimiert: %d Nachrichten → 1 Summary (~%d Zeichen)",
 	"ui.compact.working":     "komprimiere den Verlauf…",

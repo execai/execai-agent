@@ -190,3 +190,66 @@ func TestAckTasks_NetworkFailureMeansNoTasks(t *testing.T) {
 		t.Error("ошибка ack не всплыла — задачи выполнялись бы без подтверждения")
 	}
 }
+
+// 401 от инбокса при живом свежем токене на диске = токен ротировался
+// (перелогин в TUI на той же машине). Демон обязан подхватить новый без
+// рестарта — иначе в вебе агент «подключён, но не отвечает».
+func TestReloadCredentials_PicksUpRotatedToken(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := config.SaveCredentials(&config.Credentials{Token: "new", Email: "a@b"}); err != nil {
+		t.Fatal(err)
+	}
+	cr := &config.Credentials{Token: "old"}
+	if !reloadCredentials(cr) {
+		t.Fatal("новый токен на диске не подхвачен")
+	}
+	if cr.Token != "new" {
+		t.Errorf("токен = %q, ожидался new", cr.Token)
+	}
+}
+
+// Токен на диске тот же, что в памяти → перечитывание ничего не даёт, и
+// демон должен честно показать «токен отклонён», а не крутить тихий цикл.
+func TestReloadCredentials_SameTokenMeansNoRetry(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := config.SaveCredentials(&config.Credentials{Token: "same"}); err != nil {
+		t.Fatal(err)
+	}
+	cr := &config.Credentials{Token: "same"}
+	if reloadCredentials(cr) {
+		t.Error("тот же токен посчитан обновлением — цикл 401 стал бы бесконечным ретраем")
+	}
+}
+
+// Кредов на диске нет (логаут) — работаем со старыми, не затирая cr нулями.
+func TestReloadCredentials_MissingFileKeepsOld(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cr := &config.Credentials{Token: "old", AgentID: "a1"}
+	if reloadCredentials(cr) {
+		t.Error("отсутствие credentials.json посчитано обновлением")
+	}
+	if cr.Token != "old" || cr.AgentID != "a1" {
+		t.Errorf("креды в памяти испорчены: %+v", cr)
+	}
+}
+
+// Различать 401 и прочие ошибки обязательно: на 5xx перечитывать креды
+// бессмысленно, а на 401 — единственный способ ожить без рестарта.
+func TestIsUnauthorized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	_, err := pollInbox(context.Background(), &config.Config{APIBase: srv.URL}, "tok", time.Second)
+	if !isUnauthorized(err) {
+		t.Errorf("401 не распознан: %v", err)
+	}
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv2.Close()
+	_, err = pollInbox(context.Background(), &config.Config{APIBase: srv2.URL}, "tok", time.Second)
+	if isUnauthorized(err) {
+		t.Errorf("502 принят за 401: %v", err)
+	}
+}

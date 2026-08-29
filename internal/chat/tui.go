@@ -27,6 +27,7 @@ import (
 
 	"github.com/velesbsdllc/agent-vbai/internal/agent"
 	"github.com/velesbsdllc/agent-vbai/internal/auth"
+	"github.com/velesbsdllc/agent-vbai/internal/compact"
 	"github.com/velesbsdllc/agent-vbai/internal/config"
 	"github.com/velesbsdllc/agent-vbai/internal/i18n"
 	"github.com/velesbsdllc/agent-vbai/internal/llm"
@@ -98,6 +99,9 @@ type agentAskChoiceMsg struct {
 }
 type agentDoneMsg struct {
 	history []llm.AIMessage
+	// promptTokens — входной контекст последнего LLM-вызова по usage
+	// провайдера; 0 = usage не приходил, датчик берёт оценку.
+	promptTokens int
 }
 type agentErrMsg struct{ err error }
 
@@ -168,6 +172,10 @@ type tuiModel struct {
 	err           string
 	statusMessage string
 	cwd           string
+
+	// === Контекстное окно ===
+	ctxPct     int  // заполненность окна модели, % (0 = ещё не мерили)
+	compacting bool // сжатие уже идёт — не запускать второе
 
 	// === Autocomplete (like Claude Code) ===
 	// Active when the user starts with "/" — shows a menu of commands/arguments.
@@ -990,29 +998,16 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(nextTick, m.startAgent(m.loopPrompt))
 
 	case compactDoneMsg:
+		m.compacting = false
 		if msg.err != nil {
 			m.err = "compact: " + msg.err.Error()
 			return m, nil
 		}
-		// Rebuild history: system + summary + last tail.
-		var sys llm.AIMessage
-		if len(m.history) > 0 && m.history[0].Role == "system" {
-			sys = m.history[0]
-		}
-		var tail []llm.AIMessage
-		if len(m.history) > compactKeepTail {
-			tail = m.history[len(m.history)-compactKeepTail:]
-		}
-		newHist := []llm.AIMessage{}
-		if sys.Role != "" {
-			newHist = append(newHist, sys)
-		}
-		newHist = append(newHist, llm.AIMessage{
-			Role:    "assistant",
-			Content: i18n.Tf("ui.compact.historyNote", msg.saved, msg.summary),
-		})
-		newHist = append(newHist, tail...)
-		m.history = newHist
+		// Rebuild history: system + summary + хвост по той же границе, по
+		// которой резался пересказ (не рвёт пары tool_call → tool_result).
+		m.history = compact.Rebuild(m.history, msg.cut, msg.summary, msg.saved)
+		// Датчик контекста: точного usage после сжатия нет — оценка.
+		m.ctxPct = compact.Percent(0, m.history, m.current.ID)
 		// UI: add a compact hint about the compaction.
 		m.uiSegments = append(m.uiSegments, segment{
 			kind: "system_hint",
@@ -1073,6 +1068,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.history = msg.history
 		m.persistSession()
+		m.ctxPct = compact.Percent(msg.promptTokens, m.history, m.current.ID)
 		// Autoloop: check whether the AI requested a wakeup via the schedule_wakeup tool.
 		if req := tools.TakeScheduledWakeup(); req != nil {
 			delay := time.Duration(req.DelaySeconds) * time.Second
@@ -1088,6 +1084,10 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Tick(delay, func(time.Time) tea.Msg {
 				return autoWakeMsg{prompt: prompt}
 			})
+		}
+		if cmd := m.maybeAutoCompact(); cmd != nil {
+			m.refreshViewport()
+			return m, cmd
 		}
 		m.refreshViewport()
 		return m, nil
@@ -1204,6 +1204,8 @@ func (m *tuiModel) refreshSuggest() tea.Cmd {
 				items = filterSessions(arg)
 			case cmd == "/source":
 				items = filterUseOptionsFor(m.subs, arg, "/source")
+			case cmd == "/provider":
+				items = filterUseOptionsFor(m.subs, arg, "/provider")
 			case cmd == "/use":
 				items = filterUseOptionsFor(m.subs, arg, "/use")
 			case cmd == "/connect":
@@ -1289,6 +1291,7 @@ var allCommands = []suggestItem{
 	{insert: "/model ", label: "/model", hint: "hint.model"},
 	{insert: "/usage", label: "/usage", hint: "hint.usage"},
 	{insert: "/compact", label: "/compact", hint: "hint.compact"},
+	{insert: "/autocompact ", label: "/autocompact", hint: "hint.autocompact"},
 	{insert: "/log", label: "/log", hint: "hint.log"},
 	{insert: "/loop ", label: "/loop", hint: "hint.loop"},
 	{insert: "/effort", label: "/effort", hint: "hint.effort"},
@@ -1306,6 +1309,7 @@ var allCommands = []suggestItem{
 	{insert: "/connect claude-cli", label: "/connect claude-cli", hint: "hint.connect.claudecli"},
 	{insert: "/connect ollama", label: "/connect ollama", hint: "hint.connect.ollama"},
 	{insert: "/source ", label: "/source", hint: "hint.source"},
+	{insert: "/provider ", label: "/provider", hint: "hint.source"},
 	{insert: "/mouse off", label: "/mouse off", hint: "hint.mouseOff"},
 	{insert: "/mouse on", label: "/mouse on", hint: "hint.mouseOn"},
 	{insert: "/inline on", label: "/inline on", hint: "hint.inlineOn"},
@@ -1656,9 +1660,11 @@ func (m *tuiModel) handleCommand(line string) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 	case cmd == "/subscriptions" || cmd == "/subs" ||
-		cmd == "/source" || cmd == "/use" || cmd == "/connect" || cmd == "/disconnect" ||
+		cmd == "/source" || cmd == "/use" || cmd == "/provider" ||
+		cmd == "/connect" || cmd == "/disconnect" ||
 		strings.HasPrefix(cmd, "/connect ") || strings.HasPrefix(cmd, "/disconnect ") ||
-		strings.HasPrefix(cmd, "/source ") || strings.HasPrefix(cmd, "/use "):
+		strings.HasPrefix(cmd, "/source ") || strings.HasPrefix(cmd, "/use ") ||
+		strings.HasPrefix(cmd, "/provider "):
 		_, msg := m.handleSubsCommand(cmd)
 		m.uiSegments = append(m.uiSegments, segment{kind: "system_hint", body: msg})
 		m.refreshViewport()
@@ -1884,11 +1890,36 @@ func (m *tuiModel) handleCommand(line string) (tea.Model, tea.Cmd) {
 			m.err = i18n.T("err.notLoggedIn")
 			return m, nil
 		}
+		if m.compacting {
+			m.statusMessage = i18n.T("ui.compact.working")
+			return m, nil
+		}
+		m.compacting = true
 		m.statusMessage = i18n.T("ui.compact.working")
 		fn := m.compactCmd()
 		return m, func() tea.Msg {
 			return fn()
 		}
+	case cmd == "/autocompact" || strings.HasPrefix(cmd, "/autocompact "):
+		arg := strings.TrimSpace(strings.TrimPrefix(cmd, "/autocompact"))
+		switch {
+		case arg == "":
+			m.statusMessage = i18n.Tf("ui.autocompact.status", m.cfg.GetAutoCompactPercent(), m.ctxPct)
+		case arg == "off":
+			m.cfg.AutoCompactPercent = -1
+			_ = config.Save(m.cfg)
+			m.statusMessage = i18n.T("ui.autocompact.off")
+		default:
+			n, err := strconv.Atoi(arg)
+			if err != nil || n < 50 || n > 95 {
+				m.err = i18n.T("ui.autocompact.bad")
+				return m, nil
+			}
+			m.cfg.AutoCompactPercent = n
+			_ = config.Save(m.cfg)
+			m.statusMessage = i18n.Tf("ui.autocompact.set", n)
+		}
+		return m, nil
 	case cmd == "/usage":
 		if m.creds == nil {
 			m.err = i18n.T("err.notLoggedIn")
@@ -2093,6 +2124,26 @@ func (m *tuiModel) handleCommand(line string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// maybeAutoCompact запускает сжатие истории, когда контекст перевалил порог.
+// Возвращает nil, если сжимать не надо (или уже идёт). Порог — /autocompact.
+func (m *tuiModel) maybeAutoCompact() tea.Cmd {
+	threshold := m.cfg.GetAutoCompactPercent()
+	if threshold == 0 || m.compacting || m.cli == nil {
+		return nil
+	}
+	if m.ctxPct < threshold || len(m.history) <= compactKeepTail+2 {
+		return nil
+	}
+	m.compacting = true
+	m.uiSegments = append(m.uiSegments, segment{
+		kind: "system_hint",
+		body: i18n.Tf("ui.compact.autoStart", m.ctxPct),
+	})
+	m.statusMessage = i18n.T("ui.compact.working")
+	fn := m.compactCmd()
+	return func() tea.Msg { return fn() }
+}
+
 // ===== agent loop in goroutine =====
 
 func (m *tuiModel) startAgent(userMessage string) tea.Cmd {
@@ -2116,7 +2167,7 @@ func (m *tuiModel) startAgent(userMessage string) tea.Cmd {
 			prog.Send(agentErrMsg{err: err})
 			return
 		}
-		prog.Send(agentDoneMsg{history: out})
+		prog.Send(agentDoneMsg{history: out, promptTokens: a.LastPromptTokens})
 	}()
 
 	return m.spinner.Tick
@@ -2423,6 +2474,10 @@ func (m *tuiModel) View() string {
 	}
 	if m.loopActive {
 		items = append(items, statusKV(i18n.T("status.loop"), " "+m.loopInterval.String()+" "))
+	}
+	if m.ctxPct > 0 {
+		// Датчик окна: человек видит, когда близко автосжатие, а не удивляется ему.
+		items = append(items, statusKV(i18n.T("status.ctx"), fmt.Sprintf(" %d%% ", m.ctxPct)))
 	}
 	items = append(items,
 		statusKV(i18n.T("status.user"), " "+userLabel+" "),

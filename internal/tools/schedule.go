@@ -8,10 +8,14 @@
 //
 // Architecture:
 //
-//	The tool writes a ScheduleRequest into a pkg-level variable (mutex).
-//	After agentDoneMsg the TUI calls TakeScheduledWakeup() — if present, it
-//	starts a tea.Tick for that delay. On tick it sends PromptOnWake (or
-//	"continue") as the next user turn.
+//	Two delivery paths, picked by the context the tool runs in:
+//	  - a per-run sink installed with WithWakeupSink(ctx, fn): the IDE server
+//	    runs several chats at once, and a wake-up belongs to the chat whose
+//	    turn asked for it — a process-wide slot would hand it to whichever
+//	    turn finished first;
+//	  - the pkg-level slot (TakeScheduledWakeup) for the TUI, which has
+//	    exactly one conversation and reads the slot after agentDoneMsg.
+//	On wake the host sends PromptOnWake (or "continue") as the next user turn.
 package tools
 
 import (
@@ -19,8 +23,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"sync"
 )
+
+type wakeupSinkKey struct{}
+
+// WithWakeupSink routes schedule_wakeup calls made under ctx to fn instead of
+// the process-wide slot.
+func WithWakeupSink(ctx context.Context, fn func(ScheduleRequest)) context.Context {
+	return context.WithValue(ctx, wakeupSinkKey{}, fn)
+}
+
+// MinWakeupDelay is the floor for delay_seconds. EXECAI_WAKEUP_MIN_SECONDS
+// lowers it for self-tests: a real wake-up in thirty seconds is right for
+// users and hopeless for a test run.
+func MinWakeupDelay() int {
+	if v, err := strconv.Atoi(os.Getenv("EXECAI_WAKEUP_MIN_SECONDS")); err == nil && v > 0 {
+		return v
+	}
+	return 30
+}
 
 // ScheduleRequest is what the AI asked for.
 type ScheduleRequest struct {
@@ -87,19 +111,24 @@ func (*ScheduleWakeupTool) Execute(ctx context.Context, args json.RawMessage) (s
 	if p.DelaySeconds <= 0 {
 		return "", errors.New("delay_seconds обязателен и > 0")
 	}
-	if p.DelaySeconds < 30 {
-		p.DelaySeconds = 30
+	if p.DelaySeconds < MinWakeupDelay() {
+		p.DelaySeconds = MinWakeupDelay()
 	}
 	if p.DelaySeconds > 3600 {
 		p.DelaySeconds = 3600
 	}
-	pendingScheduleMu.Lock()
-	pendingSchedule = &ScheduleRequest{
+	req := ScheduleRequest{
 		DelaySeconds: p.DelaySeconds,
 		Reason:       p.Reason,
 		PromptOnWake: p.PromptOnWake,
 	}
-	pendingScheduleMu.Unlock()
+	if sink, ok := ctx.Value(wakeupSinkKey{}).(func(ScheduleRequest)); ok && sink != nil {
+		sink(req)
+	} else {
+		pendingScheduleMu.Lock()
+		pendingSchedule = &req
+		pendingScheduleMu.Unlock()
+	}
 	mins := p.DelaySeconds / 60
 	secs := p.DelaySeconds % 60
 	when := ""
@@ -108,7 +137,7 @@ func (*ScheduleWakeupTool) Execute(ctx context.Context, args json.RawMessage) (s
 	} else {
 		when = fmt.Sprintf("%dс", secs)
 	}
-	return fmt.Sprintf("✓ Запланировано пробуждение через %s. Reason: %s. Теперь заверши текущий ответ — TUI сам разбудит тебя через указанное время.", when, p.Reason), nil
+	return fmt.Sprintf("✓ Запланировано пробуждение через %s. Reason: %s. Теперь заверши текущий ответ — хост (терминал или редактор) сам разбудит тебя через указанное время.", when, p.Reason), nil
 }
 
 func (*ScheduleWakeupTool) RequiresApproval(json.RawMessage) bool { return false }

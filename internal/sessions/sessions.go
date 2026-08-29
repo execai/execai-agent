@@ -27,6 +27,12 @@ type Session struct {
 	Provider  string          `json:"provider"`
 	CWD       string          `json:"cwd"`
 	Messages  []llm.AIMessage `json:"messages"`
+	// A wake-up the model scheduled for itself (schedule_wakeup). Stored with
+	// the chat so it survives the editor being closed: on reopen an overdue
+	// wake-up fires at once, a future one gets its timer back.
+	WakeAt     *time.Time `json:"wake_at,omitempty"`
+	WakeReason string     `json:"wake_reason,omitempty"`
+	WakePrompt string     `json:"wake_prompt,omitempty"`
 }
 
 func dir() (string, error) {
