@@ -9,7 +9,7 @@
 CLI-агент в духе Claude Code, который реально работает на твоей машине: читает файлы, запускает команды, ходит в kubernetes, отвечает в чате. Поддерживает **11 источников** — наш ExecAI + твои подписки Z.ai / Kimi Code / Anthropic / OpenAI + локальные Claude Code / OpenAI Codex CLI / Ollama (cloud или local). Между ними переключается на лету общей историей.
 
 ```
-execai R5.136 · openai/gpt-5 · it@execai.ru · ~
+execai R6.78 · openai/gpt-5 · it@execai.ru · ~
 Введите задачу. /model — модели, /help — команды, /quit — выход.
 
 › проверь свободное место на сервере dev01
@@ -79,13 +79,13 @@ iwr -useb https://storage.yandexcloud.net/execai-agent-prod/execai/stable/instal
 После установки проверь:
 ```bash
 execai version
-# execai R5.NN
+# execai R6.NN
 ```
 
 ### Установить конкретную версию
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=5.136 bash
+curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=6.78 bash
 ```
 
 ### Скачать вручную
@@ -761,8 +761,8 @@ execai serve
 - Это баг старой версии bubbles. Обнови execai: `curl -fsSL .../install.sh | bash`.
 
 **Авто-обновление не приходит**:
-- В status bar внизу при старте увидишь `✓ execai R5.X — последняя версия` либо `🔔 Доступна новая`.
-- Если не работает — `EXECAI_UPDATE_CHANNEL=R5` переопределит канал.
+- В status bar внизу при старте увидишь `✓ execai R6.X — последняя версия` либо `🔔 Доступна новая`.
+- Если не работает — `EXECAI_UPDATE_CHANNEL=R6` переопределит канал.
 
 **Не отправляются картинки** хотя есть путь:
 - Проверь что путь в кавычках (одинарные/двойные) если в нём есть пробелы или кириллица: `'/path/to/Снимок экрана.png'`

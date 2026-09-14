@@ -9,7 +9,7 @@
 execai — 终端优先的 AI 编程助手，与你喜欢的 LLM 提供方（Claude、GPT-5、Kimi K3、GLM-5.2 等）无缝协作 — 用你自己的订阅，或者用我们的。这是一个 Claude Code 风格的 CLI agent，真正跑在你自己的机器上：读文件、执行命令、与 kubernetes 对话，然后把结果聊给你听。它支持 **11 个来源** — 我们的 ExecAI 后端 + 你自己的 Z.ai / Kimi Code / Anthropic / OpenAI 订阅 + 本地的 Claude Code / OpenAI Codex CLI / Ollama（云端或本地）。你可以随时在它们之间切换，会话历史保持共享。
 
 ```
-execai R5.136 · openai/gpt-5 · it@execai.ru · ~
+execai R6.78 · openai/gpt-5 · it@execai.ru · ~
 Type a task. /model — models, /help — commands, /quit — exit.
 
 › check free disk space on server dev01
@@ -75,13 +75,13 @@ iwr -useb https://storage.yandexcloud.net/execai-agent-prod/execai/stable/instal
 安装完成后，验证一下：
 ```bash
 execai version
-# execai R5.NN
+# execai R6.NN
 ```
 
 ### 固定到特定版本
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=5.136 bash
+curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=6.78 bash
 ```
 
 ### 手动下载
@@ -751,8 +751,8 @@ execai serve
 - 老版本 bubbles 的 bug。更新 execai：`curl -fsSL .../install.sh | bash`。
 
 **自动更新一直不到**：
-- 启动时底部状态栏会显示 `✓ execai R5.X — latest version` 或 `🔔 New version available`。
-- 如果不工作 — `EXECAI_UPDATE_CHANNEL=R5` 可以覆盖 channel。
+- 启动时底部状态栏会显示 `✓ execai R6.X — latest version` 或 `🔔 New version available`。
+- 如果不工作 — `EXECAI_UPDATE_CHANNEL=R6` 可以覆盖 channel。
 
 **图片明明写了路径却没发出去**：
 - 路径里有空格或非 ASCII 字符时，检查是否用引号（单引号或双引号）括起来：`'/path/to/Screenshot.png'`

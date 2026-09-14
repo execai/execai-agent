@@ -9,7 +9,7 @@
 execai es un agente de codificación con IA nacido en la terminal que funciona con tus proveedores de LLM favoritos (Claude, GPT-5, Kimi K3, GLM-5.2 y más): trae tu propia suscripción o usa la nuestra. Un agente CLI al estilo de Claude Code que de verdad se ejecuta en tu máquina: lee archivos, ejecuta comandos, habla con kubernetes y te responde en el chat. Admite **11 fuentes**: nuestro backend de ExecAI + tus suscripciones de Z.ai / Kimi Code / Anthropic / OpenAI + tu Claude Code / OpenAI Codex CLI / Ollama local (en la nube o en local). Puedes cambiar entre ellas al vuelo compartiendo el historial de la conversación.
 
 ```
-execai R5.136 · openai/gpt-5 · it@execai.ru · ~
+execai R6.78 · openai/gpt-5 · it@execai.ru · ~
 Type a task. /model — models, /help — commands, /quit — exit.
 
 › check free disk space on server dev01
@@ -75,13 +75,13 @@ Autodetecta la arquitectura (amd64 / arm64 para PCs Copilot+), pide **UAC** una 
 Tras instalar, verifica:
 ```bash
 execai version
-# execai R5.NN
+# execai R6.NN
 ```
 
 ### Fijar una versión concreta
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=5.136 bash
+curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=6.78 bash
 ```
 
 ### Descarga manual
@@ -753,8 +753,8 @@ El historial de entrada (`↑/↓`) también se guarda en `~/.config/execai/inpu
 - Bug de una versión antigua de bubbles. Actualiza execai: `curl -fsSL .../install.sh | bash`.
 
 **El auto-update nunca llega**:
-- Al arrancar, la barra de estado abajo muestra `✓ execai R5.X — latest version` o `🔔 New version available`.
-- Si no funciona — `EXECAI_UPDATE_CHANNEL=R5` fuerza el canal.
+- Al arrancar, la barra de estado abajo muestra `✓ execai R6.X — latest version` o `🔔 New version available`.
+- Si no funciona — `EXECAI_UPDATE_CHANNEL=R6` fuerza el canal.
 
 **Las imágenes no se envían** aunque la ruta esté ahí:
 - Comprueba que la ruta va entre comillas (simples o dobles) si contiene espacios o no-ASCII: `'/path/to/Screenshot.png'`

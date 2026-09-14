@@ -9,7 +9,7 @@
 execai is a terminal-first AI coding agent that works with your favorite LLM providers (Claude, GPT-5, Kimi K3, GLM-5.2, and more) — bring your own subscription or use ours. A CLI agent in the spirit of Claude Code that actually runs on your machine: it reads files, executes commands, talks to kubernetes, and chats back. It supports **11 sources** — our ExecAI backend + your Z.ai / Kimi Code / Anthropic / OpenAI subscriptions + local Claude Code / OpenAI Codex CLI / Ollama (cloud or local). You can switch between them on the fly with a shared conversation history.
 
 ```
-execai R5.136 · openai/gpt-5 · it@execai.ru · ~
+execai R6.78 · openai/gpt-5 · it@execai.ru · ~
 Type a task. /model — models, /help — commands, /quit — exit.
 
 › check free disk space on server dev01
@@ -79,13 +79,13 @@ Auto-detects architecture (amd64 / arm64 for Copilot+ PCs), asks for **UAC** onc
 After install, verify:
 ```bash
 execai version
-# execai R5.NN
+# execai R6.NN
 ```
 
 ### Pin a specific version
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=5.136 bash
+curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=6.78 bash
 ```
 
 ### Manual download
@@ -761,8 +761,8 @@ Input history (`↑/↓`) is also saved to `~/.config/execai/input_history` — 
 - Old bubbles version bug. Update execai: `curl -fsSL .../install.sh | bash`.
 
 **Auto-update never arrives**:
-- On startup the status bar at the bottom shows `✓ execai R5.X — latest version` or `🔔 New version available`.
-- If it's not working — `EXECAI_UPDATE_CHANNEL=R5` overrides the channel.
+- On startup the status bar at the bottom shows `✓ execai R6.X — latest version` or `🔔 New version available`.
+- If it's not working — `EXECAI_UPDATE_CHANNEL=R6` overrides the channel.
 
 **Images don't get sent** even though the path is there:
 - Check the path is in quotes (single or double) if it contains spaces or non-ASCII: `'/path/to/Screenshot.png'`

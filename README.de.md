@@ -9,7 +9,7 @@
 execai ist ein Terminal-first KI-Coding-Agent, der mit deinen Lieblings-LLM-Anbietern zusammenarbeitet (Claude, GPT-5, Kimi K3, GLM-5.2 und mehr) — bring dein eigenes Abo mit oder nutze unseres. Ein CLI-Agent im Geist von Claude Code, der wirklich auf deiner Maschine läuft: er liest Dateien, führt Befehle aus, redet mit Kubernetes und antwortet dir im Chat. Er unterstützt **11 Quellen** — unser ExecAI-Backend + deine Abonnements bei Z.ai / Kimi Code / Anthropic / OpenAI + lokale Claude Code / OpenAI Codex CLI / Ollama (Cloud oder lokal). Du kannst spontan zwischen ihnen wechseln, mit gemeinsam genutztem Conversation-History.
 
 ```
-execai R5.136 · openai/gpt-5 · it@execai.ru · ~
+execai R6.78 · openai/gpt-5 · it@execai.ru · ~
 Type a task. /model — models, /help — commands, /quit — exit.
 
 › check free disk space on server dev01
@@ -75,13 +75,13 @@ Erkennt die Architektur automatisch (amd64 / arm64 für Copilot+ PCs), fragt ein
 Nach der Installation prüfen:
 ```bash
 execai version
-# execai R5.NN
+# execai R6.NN
 ```
 
 ### Eine bestimmte Version pinnen
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=5.136 bash
+curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=6.78 bash
 ```
 
 ### Manueller Download
@@ -753,8 +753,8 @@ Der Eingabe-Verlauf (`↑/↓`) wird ebenfalls in `~/.config/execai/input_histor
 - Alter Bug in der bubbles-Version. execai updaten: `curl -fsSL .../install.sh | bash`.
 
 **Auto-Update kommt nie an**:
-- Beim Start zeigt die Statuszeile unten `✓ execai R5.X — latest version` oder `🔔 New version available`.
-- Wenn es nicht funktioniert — `EXECAI_UPDATE_CHANNEL=R5` überschreibt den Channel.
+- Beim Start zeigt die Statuszeile unten `✓ execai R6.X — latest version` oder `🔔 New version available`.
+- Wenn es nicht funktioniert — `EXECAI_UPDATE_CHANNEL=R6` überschreibt den Channel.
 
 **Bilder werden nicht gesendet**, obwohl der Pfad da ist:
 - Prüfe, ob der Pfad in Anführungszeichen steht (einfach oder doppelt), falls er Leerzeichen oder Nicht-ASCII enthält: `'/path/to/Screenshot.png'`
