@@ -1,6 +1,6 @@
 # Installs execai from public prod-bucket in Yandex Object Storage.
-#   irm https://storage.yandexcloud.net/execai-agent-prod/execai/R5/latest/install.ps1 | iex
-#   $env:PREFIX='execai/R5/42'; iex (irm ...)
+#   irm https://storage.yandexcloud.net/execai-agent-prod/execai/stable/install.ps1 | iex
+#   $env:PREFIX='execai/R6/78'; iex (irm ...)   # pin a specific build
 #
 # All user-facing strings are ASCII on purpose: Windows PowerShell 5.1
 # doesn't handle UTF-8 correctly when a script comes over `iwr | iex`
@@ -9,7 +9,7 @@
 $ErrorActionPreference = 'Stop'
 
 $Bucket     = if ($env:BUCKET)      { $env:BUCKET }      else { 'https://storage.yandexcloud.net/execai-agent-prod' }
-$Prefix     = if ($env:PREFIX)      { $env:PREFIX }      else { 'execai/R5/latest' }
+$Prefix     = if ($env:PREFIX)      { $env:PREFIX }      else { 'execai/stable' }
 $InstallDir = if ($env:INSTALL_DIR) { $env:INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'execai' }
 
 if (-not [Environment]::Is64BitOperatingSystem) {
@@ -28,7 +28,7 @@ switch -Regex ($archName.ToUpper()) {
 # auto keeps the historical behaviour — Yandex first — because that is where
 # most of the current users are; GitHub is the fallback and the explicit choice.
 #   $env:MIRROR='github'; iex (irm https://raw.githubusercontent.com/execai/execai-agent/main/install.ps1)
-#   $env:VERSION='5.160'  — pin a specific GitHub release instead of the latest.
+#   $env:VERSION='6.78'  — pin a specific GitHub release instead of the latest.
 $Mirror  = if ($env:MIRROR)  { $env:MIRROR.ToLower() } else { 'auto' }
 $Version = $env:VERSION
 

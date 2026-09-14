@@ -52,6 +52,17 @@ for dst in "execai/${MAJOR}/${BUILD}/" "execai/${MAJOR}/latest/" "execai/stable/
   $S3 cp --recursive --no-progress "$SRC" "s3://execai-agent-prod/$dst" >/dev/null
 done
 
+# Установщики обновляем той же рукой: stable/install.ps1 однажды пролежал
+# в бакете с июля с зашитым каналом R5/latest — Windows молча ставил R5.160
+# при stable=R6.78. Свежий скрипт из репо на каждом промоуте закрывает
+# этот класс протухания навсегда.
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for inst in install.sh install.ps1; do
+  [[ -f "$SCRIPTS_DIR/$inst" ]] || { echo "нет $SCRIPTS_DIR/$inst — установщик не обновлён" >&2; exit 1; }
+  $S3 cp --no-progress "$SCRIPTS_DIR/$inst" "s3://execai-agent-prod/execai/stable/$inst" >/dev/null
+done
+echo "==> установщики (install.sh, install.ps1) обновлены в stable"
+
 echo "==> прод обновлён:"
 echo "    stable  = $(curl -fsS https://storage.yandexcloud.net/execai-agent-prod/execai/stable/VERSION.txt)"
 echo "    ${MAJOR}/latest = $(curl -fsS https://storage.yandexcloud.net/execai-agent-prod/execai/${MAJOR}/latest/VERSION.txt)"
