@@ -710,7 +710,15 @@ func (m *tuiModel) refreshOpenAIAvailability(active subscriptions.Subscription) 
 // saving it into the subscription. Ignores errors (the plan just stays unlabeled).
 // Works for both Kimi sources (kimi Coding Plan and kimi-api pay-per-token).
 func (m *tuiModel) refreshKimiAvailability(active subscriptions.Subscription) {
-	avail := fetchKimiAvailableModels(active.BaseURL, active.APIKey)
+	// Спрашиваем так, как этот провайдер привык (zai/anthropic — x-api-key,
+	// ollama — /api/tags, остальные — OpenAI-compat): раньше здесь всех
+	// спрашивали кими-способом, и для zai/anthropic с пустым BaseURL запрос
+	// уходил на api.kimi.com — живой список не обновлялся никогда.
+	base := active.BaseURL
+	if base == "" {
+		base = connect.DefaultBaseURL(active.Provider)
+	}
+	avail, _ := connect.FetchModelsFor(active.Provider, base, active.APIKey)
 	if len(avail) == 0 {
 		return
 	}

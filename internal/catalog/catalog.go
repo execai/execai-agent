@@ -28,7 +28,10 @@ import (
 func For(provider string, available []string) []llm.Model {
 	switch provider {
 	case subscriptions.SourceZAI:
-		return llm.GLMModels()
+		// Coding Plan: имена и порядок — из встроенного каталога, а живой
+		// список с /v1/models дописывает модели, вышедшие после этой сборки
+		// (иначе glm-5.3 была на аккаунте, но не в агенте).
+		return merge(llm.GLMModels(), available, "zai")
 	case subscriptions.SourceZAIAPI:
 		return dynamicOr(available, llm.ZAIAPIModels(), "zai-api", zaiPrimary)
 	case subscriptions.SourceKimi:
@@ -122,7 +125,7 @@ func dynamicOr(available []string, builtin []llm.Model, provider string, primary
 }
 
 var (
-	zaiPrimary     = []string{"glm-5.2", "glm-4.7", "glm-4.6", "glm-4.5"}
+	zaiPrimary     = []string{"glm-5.3", "glm-5.2", "glm-4.7", "glm-4.6", "glm-4.5"}
 	kimiAPIPrimary = []string{"kimi-k3", "kimi-k3-preview", "kimi-k3-turbo", "k3", "kimi-latest", "kimi-k2-turbo-preview", "moonshot-v1-auto", "moonshot-v1-128k"}
 	openAIPrimary  = []string{"gpt-5", "gpt-5-mini", "o3", "gpt-4.1", "gpt-4o", "o4-mini", "gpt-4o-mini"}
 	// openRouterTop — vendors and families worth putting on top of a catalog

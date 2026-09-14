@@ -149,3 +149,32 @@ func TestOpenRouterOrdersCodingFamiliesFirst(t *testing.T) {
 		t.Error("deepseek оказался в самом хвосте — приоритет не сработал")
 	}
 }
+
+// zai (Coding Plan): живой список дописывает модели, вышедшие после сборки, —
+// раньше каталог был чистым хардкодом, и glm-5.3 с аккаунта не появлялась.
+func TestFor_ZaiMergesLiveList(t *testing.T) {
+	got := For("zai", []string{"glm-5.3", "glm-6-preview"})
+	ids := map[string]bool{}
+	for _, m := range got {
+		if m.Provider != "zai" {
+			t.Fatalf("чужой provider в каталоге zai: %+v", m)
+		}
+		ids[m.ID] = true
+	}
+	if !ids["glm-6-preview"] {
+		t.Errorf("новая модель из живого списка не дописана: %v", got)
+	}
+	if !ids["glm-5.3"] || !ids["glm-4.7"] {
+		t.Errorf("встроенный каталог потерян: %v", got)
+	}
+	// glm-5.3 есть и в хардкоде, и в живом списке — дубля быть не должно.
+	n := 0
+	for _, m := range got {
+		if m.ID == "glm-5.3" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("glm-5.3 встречается %d раз", n)
+	}
+}

@@ -219,9 +219,11 @@ var _ StreamingLLM = (*GLMClient)(nil)
 // Billed via the subscription (Coding Plan key), not pay-per-token.
 func GLMModels() []Model {
 	return []Model{
-		{ID: "glm-5.2", Provider: "zai", Name: "GLM-5.2", Description: "Flagship coding (MoE 753B/40B, dual thinking)", Tier: "flagship", IsPrimary: true, HasTools: true},
+		{ID: "glm-5.3", Provider: "zai", Name: "GLM-5.3", Description: "Flagship coding (свежайшая)", Tier: "flagship", IsPrimary: true, HasTools: true},
+		{ID: "glm-5.3-flash", Provider: "zai", Name: "GLM-5.3-Flash", Description: "Быстрая 5.3 — дешевле и ниже латентность", Tier: "standard", HasTools: true},
+		{ID: "glm-5.2", Provider: "zai", Name: "GLM-5.2", Description: "Flagship coding (MoE 753B/40B, dual thinking)", Tier: "flagship", HasTools: true},
 		{ID: "glm-5.2[1m]", Provider: "zai", Name: "GLM-5.2 [1M ctx]", Description: "GLM-5.2 c 1M контекстом (если нужен очень большой ввод)", Tier: "flagship", HasTools: true},
-		{ID: "glm-4.7", Provider: "zai", Name: "GLM-4.7", Description: "Дефолтная мапа Coding Plan; быстрее и дешевле 5.2", Tier: "standard", HasTools: true},
+		{ID: "glm-4.7", Provider: "zai", Name: "GLM-4.7", Description: "Дефолтная мапа Coding Plan; быстрее и дешевле 5.x", Tier: "standard", HasTools: true},
 	}
 }
 
@@ -231,8 +233,10 @@ func GLMModels() []Model {
 // wrong endpoint. The real list is fetched at /connect via GET /models.
 func ZAIAPIModels() []Model {
 	return []Model{
-		{ID: "glm-5.2", Provider: "zai-api", Name: "GLM-5.2", Description: "Flagship coding (MoE 753B/40B, dual thinking)", Tier: "flagship", IsPrimary: true, HasTools: true},
-		{ID: "glm-4.7", Provider: "zai-api", Name: "GLM-4.7", Description: "Быстрее и дешевле 5.2", Tier: "standard", HasTools: true},
+		{ID: "glm-5.3", Provider: "zai-api", Name: "GLM-5.3", Description: "Flagship coding (свежайшая)", Tier: "flagship", IsPrimary: true, HasTools: true},
+		{ID: "glm-5.3-flash", Provider: "zai-api", Name: "GLM-5.3-Flash", Description: "Быстрая 5.3 — дешевле и ниже латентность", Tier: "standard", HasTools: true},
+		{ID: "glm-5.2", Provider: "zai-api", Name: "GLM-5.2", Description: "Flagship coding (MoE 753B/40B, dual thinking)", Tier: "flagship", HasTools: true},
+		{ID: "glm-4.7", Provider: "zai-api", Name: "GLM-4.7", Description: "Быстрее и дешевле 5.x", Tier: "standard", HasTools: true},
 	}
 }
 

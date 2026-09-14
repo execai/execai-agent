@@ -24,6 +24,8 @@ import (
 // CLIs, Ollama) or is not keyed at all.
 func DefaultBaseURL(provider string) string {
 	switch provider {
+	case subscriptions.SourceZAI:
+		return "https://api.z.ai/api/anthropic"
 	case subscriptions.SourceZAIAPI:
 		return "https://api.z.ai/api/paas/v4"
 	case subscriptions.SourceKimi:
@@ -104,6 +106,10 @@ func KeyRejected(status int) bool {
 func FetchModelsFor(provider, baseURL, apiKey string) ([]string, int) {
 	switch provider {
 	case subscriptions.SourceAnthropic:
+		return fetchAnthropic(baseURL, apiKey)
+	case subscriptions.SourceZAI:
+		// Coding Plan живёт на Anthropic-совместимой базе: тот же
+		// GET /v1/models, тот же x-api-key (проверено на api.z.ai).
 		return fetchAnthropic(baseURL, apiKey)
 	case subscriptions.SourceOllama:
 		return fetchOllama(baseURL, apiKey)
@@ -228,7 +234,8 @@ const ModelsTTL = 24 * time.Hour
 // list changes with the plan or with what the vendor ships.
 func WantsLiveModels(provider string) bool {
 	switch provider {
-	case subscriptions.SourceKimi, subscriptions.SourceKimiAPI, subscriptions.SourceZAIAPI,
+	case subscriptions.SourceKimi, subscriptions.SourceKimiAPI,
+		subscriptions.SourceZAI, subscriptions.SourceZAIAPI,
 		subscriptions.SourceOpenAI, subscriptions.SourceOpenRouter,
 		subscriptions.SourceAnthropic, subscriptions.SourceOllama:
 		return true

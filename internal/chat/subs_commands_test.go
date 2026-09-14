@@ -48,8 +48,8 @@ func TestApplySubscriptionSource_ZaiThenExecAI_RestoresCatalog(t *testing.T) {
 	if m.current.Provider != "zai" {
 		t.Fatalf("после /source zai ждали provider=zai, имеем %q", m.current.Provider)
 	}
-	if m.current.ID != "glm-5.2" {
-		t.Fatalf("после /source zai ждали glm-5.2 primary, имеем %q", m.current.ID)
+	if m.current.ID != "glm-5.3" {
+		t.Fatalf("после /source zai ждали glm-5.3 primary, имеем %q", m.current.ID)
 	}
 	if len(m.models) == 0 || m.models[0].Provider != "zai" {
 		t.Fatalf("каталог не переключился на GLMModels: %+v", m.models)
@@ -61,7 +61,7 @@ func TestApplySubscriptionSource_ZaiThenExecAI_RestoresCatalog(t *testing.T) {
 	}
 	m.applySubscriptionSource()
 
-	if m.current.Provider == "zai" || m.current.ID == "glm-5.2" {
+	if m.current.Provider == "zai" || m.current.ID == "glm-5.3" {
 		t.Fatalf("BUG-1 regression: после /source execai остался zai/glm-5.2: %+v", m.current)
 	}
 	if m.current.ID != "claude-sonnet-4-6" {
@@ -97,8 +97,8 @@ func TestApplySubscriptionSource_PickPrimaryWhenCurrentMissing(t *testing.T) {
 	m.current = llm.Model{ID: "gpt-5", Provider: "openai"} // not in GLMModels
 	_ = m.subs.Activate("zai")
 	m.applySubscriptionSource()
-	if m.current.ID != "glm-5.2" {
-		t.Fatalf("ждали fallback на glm-5.2 primary, имеем %q", m.current.ID)
+	if m.current.ID != "glm-5.3" {
+		t.Fatalf("ждали fallback на glm-5.3 primary, имеем %q", m.current.ID)
 	}
 }
 
