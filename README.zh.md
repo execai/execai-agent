@@ -206,6 +206,8 @@ Agent 可以对接 **11 个不同的来源**。会话历史是共享的 — 随�
 | **codex-cli** | 委派给你本地的 `codex` CLI | 你的 ChatGPT Plus/Pro/Team OAuth |
 | **ollama** | 云端（ollama.com）或本地（`ollama serve`） | 你的订阅 / 本地 0 ₽ |
 
+> **测试版：** 测试期间代理本身免费——可免费接入你自己的密钥和订阅。测试期结束后，使用自己的源需要有效的 ExecAI 订阅；通过 `execai` 源使用的模型仍按你的 ExecAI 套餐计费。
+
 ### 1. ExecAI — 默认
 
 登录后 agent 会使用我们的计费。无需额外配置。

@@ -17,6 +17,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -134,7 +135,20 @@ func (a *Agent) RunWithFiles(ctx context.Context, history []llm.AIMessage, userM
 			cb.OnText = a.Streamer.OnText
 			cb.OnReasoning = a.Streamer.OnReasoning
 			cb.OnToolCall = func(name string) {} // name announced before args accumulate; full args are fetched after Stream
+			cb.OnDelegatedTool = func(name string, input json.RawMessage) {
+				native, args := delegatedToNative(name, input)
+				a.Streamer.OnToolCall(native, args)
+			}
+			cb.OnDelegatedToolResult = func(name, result string, isError bool) {
+				native, _ := delegatedToNative(name, nil)
+				var err error
+				if isError {
+					err = errors.New(result)
+				}
+				a.Streamer.OnToolResult(native, result, err)
+			}
 		}
+		cb.ApproveDelegatedTool = a.approveDelegated
 		res, err := a.Client.Stream(ctx, out, defsRaw, cb)
 		if err != nil {
 			return out, err
@@ -212,57 +226,8 @@ func (a *Agent) runTool(ctx context.Context, name string, args json.RawMessage) 
 			name, strings.Join(names, ", "))
 		return hint, nil
 	}
-	if t.RequiresApproval(args) && a.Approver != nil {
-		// Канонический ключ: description и порядок полей не должны превращать
-		// повтор той же команды в «новый» вопрос (см. exactkey.go).
-		exactKey := ExactKey(name, args)
-		// Инструмент может задать СВОЙ масштаб разрешения: чтение — каталог,
-		// сеть — домен. Без этого «навсегда» покрывало бы ровно один файл или
-		// один URL, и человек отвечал бы на тот же по смыслу вопрос без конца.
-		scope := ""
-		if sc, ok := t.(tools.Scoped); ok {
-			if k := sc.PermissionKey(args); k != "" {
-				exactKey = k
-				scope = sc.PermissionScope(args)
-			}
-		}
-		// If already allowed — persisted, session-wide, or for this exact command — skip the prompt.
-		persistAllow := a.Permissions != nil && (a.Permissions.HasTool(name) || a.Permissions.HasExact(exactKey))
-		if !persistAllow && !a.allowedTools[name] && !a.allowedExactArgs[exactKey] {
-			summary := summaryFor(name, args)
-			// Человек должен видеть, что именно он открывает: «каталог /var/log»,
-			// а не только имя файла, по которому пришёл вопрос.
-			if scope != "" {
-				summary += "\n→ разрешение распространится на: " + scope
-			}
-			decision := a.Approver.AskApprove(name, args, summary)
-			switch decision {
-			case ApproveDeny:
-				return "Пользователь отклонил выполнение этого инструмента.", nil
-			case ApproveTool:
-				a.allowedTools[name] = true
-			case ApproveExactArgs:
-				a.allowedExactArgs[exactKey] = true
-			case ApproveAlways:
-				if a.Permissions != nil {
-					// У инструмента со своим масштабом «навсегда» означает
-					// каталог или домен, а не весь инструмент: разрешить
-					// «весь Read» ради одного каталога — отдать всю машину.
-					if scope != "" {
-						a.Permissions.AddExact(exactKey)
-					} else {
-						a.Permissions.AddTool(name)
-					}
-					if err := a.Permissions.Save(); err != nil {
-						// Молча потерянное «навсегда» = вопрос снова при следующем
-						// запуске; человек решит, что кнопка не работает.
-						fmt.Fprintln(os.Stderr, "не сохранить разрешение:", err)
-					}
-				}
-			case ApproveOnce:
-				// just proceed
-			}
-		}
+	if t.RequiresApproval(args) && !a.approve(t, name, args) {
+		return "Пользователь отклонил выполнение этого инструмента.", nil
 	}
 	// If the tool supports streaming and a Streamer is present, forward chunks to the UI.
 	if st, ok := t.(tools.StreamingTool); ok && a.Streamer != nil {
@@ -271,6 +236,67 @@ func (a *Agent) runTool(ctx context.Context, name string, args json.RawMessage) 
 		})
 	}
 	return t.Execute(ctx, args)
+}
+
+// approve asks the person about a call that needs consent, unless an earlier
+// answer — persisted, session-wide or for this exact call — already covers it.
+// t may be nil: a delegated CLI can run a tool execai does not have, and then
+// the question is asked as is, without a per-tool scope.
+func (a *Agent) approve(t tools.Tool, name string, args json.RawMessage) bool {
+	if a.Approver == nil {
+		return true
+	}
+	// Канонический ключ: description и порядок полей не должны превращать
+	// повтор той же команды в «новый» вопрос (см. exactkey.go).
+	exactKey := ExactKey(name, args)
+	// Инструмент может задать СВОЙ масштаб разрешения: чтение — каталог,
+	// сеть — домен. Без этого «навсегда» покрывало бы ровно один файл или
+	// один URL, и человек отвечал бы на тот же по смыслу вопрос без конца.
+	scope := ""
+	if sc, ok := t.(tools.Scoped); ok {
+		if k := sc.PermissionKey(args); k != "" {
+			exactKey = k
+			scope = sc.PermissionScope(args)
+		}
+	}
+	// If already allowed — persisted, session-wide, or for this exact command — skip the prompt.
+	persistAllow := a.Permissions != nil && (a.Permissions.HasTool(name) || a.Permissions.HasExact(exactKey))
+	if persistAllow || a.allowedTools[name] || a.allowedExactArgs[exactKey] {
+		return true
+	}
+	summary := summaryFor(name, args)
+	// Человек должен видеть, что именно он открывает: «каталог /var/log»,
+	// а не только имя файла, по которому пришёл вопрос.
+	if scope != "" {
+		summary += "\n→ разрешение распространится на: " + scope
+	}
+	switch a.Approver.AskApprove(name, args, summary) {
+	case ApproveDeny:
+		return false
+	case ApproveTool:
+		a.allowedTools[name] = true
+	case ApproveExactArgs:
+		a.allowedExactArgs[exactKey] = true
+	case ApproveAlways:
+		if a.Permissions != nil {
+			// У инструмента со своим масштабом «навсегда» означает
+			// каталог или домен, а не весь инструмент: разрешить
+			// «весь Read» ради одного каталога — отдать всю машину.
+			if scope != "" {
+				a.Permissions.AddExact(exactKey)
+			} else {
+				a.Permissions.AddTool(name)
+			}
+			if err := a.Permissions.Save(); err != nil {
+				// Молча потерянное «навсегда» = вопрос снова при следующем
+				// запуске; человек решит, что кнопка не работает.
+				fmt.Fprintln(os.Stderr, "не сохранить разрешение:", err)
+			}
+		}
+	case ApproveOnce:
+		// just proceed
+	}
+	return true
 }
 
 func ensureSystem(history []llm.AIMessage, sys string) []llm.AIMessage {

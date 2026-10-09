@@ -129,6 +129,17 @@ type StreamCallbacks struct {
 	OnText      func(string)      // increment of visible text
 	OnToolCall  func(name string) // first time we see the name of a tool being called — UI may show "▶ Bash..."
 	OnReasoning func(string)      // chain-of-thought (DeepSeek/o1) — may be hidden or dimmed
+
+	// Delegated tools: a client that runs its OWN tools (claude-cli) never
+	// returns tool_calls to the agent loop, so the loop cannot show or gate
+	// them. These hooks give both back. Each call is announced exactly once
+	// and always followed by its result, in that order.
+	OnDelegatedTool       func(name string, input json.RawMessage)
+	OnDelegatedToolResult func(name, result string, isError bool)
+	// ApproveDelegatedTool decides whether the client may run a tool it asked
+	// permission for. nil means deny: a delegated CLI must not get a silent
+	// "yes" to edits and commands.
+	ApproveDelegatedTool func(name string, input json.RawMessage) (allow bool, reason string)
 }
 
 type streamChunk struct {

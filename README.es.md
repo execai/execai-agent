@@ -206,6 +206,8 @@ El agente puede hablar con **11 fuentes distintas**. El historial de la conversa
 | **codex-cli** | Delega en tu CLI local `codex` | Tu OAuth de ChatGPT Plus/Pro/Team |
 | **ollama** | Cloud (ollama.com) o local (`ollama serve`) | Tu suscripción / 0 ₽ en local |
 
+> **Beta:** el agente en sí es gratuito durante la beta — conecta tus propias claves y suscripciones sin coste. Tras la beta, usar tus propias fuentes requerirá una suscripción ExecAI activa; los modelos a través de la fuente `execai` se cobran por tu plan ExecAI, como hasta ahora.
+
 ### 1. ExecAI — por defecto
 
 Tras el login, el agente usa nuestra facturación. Sin configuración adicional.

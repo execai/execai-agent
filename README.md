@@ -210,6 +210,8 @@ The agent can talk to **11 different sources**. The conversation history is shar
 | **codex-cli** | Delegates to your local `codex` CLI | Your ChatGPT Plus/Pro/Team OAuth |
 | **ollama** | Cloud (ollama.com) or local (`ollama serve`) | Your subscription / 0 ₽ locally |
 
+> **Beta:** the agent itself is free while it is in beta — connect your own keys and subscriptions at no charge. After the beta, using your own sources will require an active ExecAI subscription; models via the `execai` source are billed by your ExecAI plan as before.
+
 ### 1. ExecAI — default
 
 After login the agent uses our billing. No extra setup.

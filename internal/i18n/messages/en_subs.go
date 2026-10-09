@@ -82,11 +82,12 @@ var enSubsMessages = map[string]string{
 		"Example:  /connect zai sk-zai-XXXXX\n" +
 		"          /connect zai sk-zai-XXXXX https://open.bigmodel.cn/api/paas/v4  (for CN)",
 	"subs.connect.claudecliOK": "✓ claude-cli connected (quota from your Pro/Max subscription via Claude Code OAuth).\n" +
+		"Binary: %s — the newest one found (PATH, ~/.local/bin, editor extensions; pin your own with EXECAI_CLAUDE_BIN).\n" +
 		"Switch: /source claude-cli\n" +
 		"\n" +
-		"Limitations:\n" +
-		"  • execai-tools (Bash/Read/Write) do NOT work — the claude CLI runs its OWN tools.\n" +
-		"  • Model selection — via `claude config set defaultModel <id>` externally.\n" +
+		"How it works:\n" +
+		"  • claude runs ITS OWN tools; edits and commands are approved here, like execai's, under the same security level.\n" +
+		"  • Model — /model (the opus/sonnet aliases follow the claude version: update it if models look old).\n" +
 		"  • History is passed as a plain-text prompt (no session-id).",
 	"subs.connect.codexcliOK": "✓ codex-cli connected (quota from your ChatGPT Plus/Pro subscription via OpenAI Codex OAuth).\n" +
 		"Switch: /source codex-cli\n" +

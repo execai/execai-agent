@@ -206,6 +206,8 @@ Der Agent kann mit **11 verschiedenen Quellen** reden. Der Conversation-History 
 | **codex-cli** | Delegiert an dein lokales `codex`-CLI | Dein ChatGPT Plus/Pro/Team OAuth |
 | **ollama** | Cloud (ollama.com) oder lokal (`ollama serve`) | Dein Abo / 0 ₽ lokal |
 
+> **Beta:** Der Agent selbst ist während der Beta kostenlos — eigene Schlüssel und Abonnements lassen sich ohne Aufpreis anbinden. Nach der Beta setzt die Nutzung eigener Quellen ein aktives ExecAI-Abonnement voraus; Modelle über die Quelle `execai` werden wie bisher über Ihren ExecAI-Plan abgerechnet.
+
 ### 1. ExecAI — Standard
 
 Nach dem Login nutzt der Agent unsere Abrechnung. Kein zusätzliches Setup.

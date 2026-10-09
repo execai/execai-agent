@@ -82,11 +82,12 @@ var ruSubsMessages = map[string]string{
 		"Пример:  /connect zai sk-zai-XXXXX\n" +
 		"         /connect zai sk-zai-XXXXX https://open.bigmodel.cn/api/paas/v4  (для CN)",
 	"subs.connect.claudecliOK": "✓ claude-cli подключен (квота из твоей Pro/Max-подписки через OAuth Claude Code).\n" +
+		"Бинарь: %s — самый новый из найденных (PATH, ~/.local/bin, расширения редакторов; свой путь — EXECAI_CLAUDE_BIN).\n" +
 		"Переключись: /source claude-cli\n" +
 		"\n" +
-		"Ограничения:\n" +
-		"  • execai-tools (Bash/Read/Write) НЕ работают — claude CLI запускает СВОИ tools.\n" +
-		"  • Управление моделью — через `claude config set defaultModel <id>` снаружи.\n" +
+		"Как это работает:\n" +
+		"  • claude запускает СВОИ инструменты; правки и команды спрашиваются здесь, как у execai, по тому же уровню безопасности.\n" +
+		"  • Модель — /model (алиасы opus/sonnet идут за версией claude: обнови его, если модели старые).\n" +
 		"  • История передаётся как plain-text промт (без session-id).",
 	"subs.connect.codexcliOK": "✓ codex-cli подключен (квота из твоей ChatGPT Plus/Pro-подписки через OAuth OpenAI Codex).\n" +
 		"Переключись: /source codex-cli\n" +

@@ -81,11 +81,12 @@ var zhSubsMessages = map[string]string{
 		"示例：  /connect zai sk-zai-XXXXX\n" +
 		"        /connect zai sk-zai-XXXXX https://open.bigmodel.cn/api/paas/v4  （CN 区域）",
 	"subs.connect.claudecliOK": "✓ claude-cli 已连接（通过 Claude Code OAuth 使用你的 Pro/Max 订阅配额）。\n" +
+		"程序：%s — 找到的最新版本（PATH、~/.local/bin、编辑器扩展；可用 EXECAI_CLAUDE_BIN 指定路径）。\n" +
 		"切换：/source claude-cli\n" +
 		"\n" +
-		"限制：\n" +
-		"  • execai-tools（Bash/Read/Write）不可用 — claude CLI 运行它自己的 tools。\n" +
-		"  • 模型管理 — 需在外部执行 `claude config set defaultModel <id>`。\n" +
+		"工作方式：\n" +
+		"  • claude 运行它自己的 tools；编辑和命令在这里确认，与 execai 相同，遵循同一安全级别。\n" +
+		"  • 模型 — /model（opus/sonnet 别名跟随 claude 版本：模型显得旧时请更新 claude）。\n" +
 		"  • 历史记录以纯文本 prompt 传递（无 session-id）。",
 	"subs.connect.codexcliOK": "✓ codex-cli 已连接（通过 OpenAI Codex OAuth 使用你的 ChatGPT Plus/Pro 订阅配额）。\n" +
 		"切换：/source codex-cli\n" +

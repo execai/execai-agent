@@ -437,7 +437,8 @@ func (m *tuiModel) startConnectFlow(arg string) string {
 	provider := parts[0]
 	// claude-cli — special case: no key needed, only a check that the binary is in PATH.
 	if provider == "claude-cli" {
-		if _, err := llm.NewClaudeCLIClient(""); err != nil {
+		cli, err := llm.NewClaudeCLIClient("")
+		if err != nil {
 			return "✗ " + err.Error()
 		}
 		if m.subs == nil {
@@ -451,7 +452,7 @@ func (m *tuiModel) startConnectFlow(arg string) string {
 		if err := m.subs.Save(); err != nil {
 			return i18n.Tf("subs.saveError", err)
 		}
-		return i18n.T("subs.connect.claudecliOK")
+		return i18n.Tf("subs.connect.claudecliOK", cli.Describe())
 	}
 	// codex-cli — same thing for the OpenAI Codex CLI (`codex` binary).
 	if provider == "codex-cli" {
