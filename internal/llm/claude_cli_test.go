@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -234,5 +235,115 @@ func writeFakeClaude(t *testing.T, path, body string) {
 	}
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Images reach claude as image blocks at their place in the history — a live
+// turn ([]ContentBlock) and a chat loaded from disk ([]interface{}) alike.
+// Flattened to text they were a bare " [image] " and claude never saw them.
+func TestClaudePromptContentKeepsImages(t *testing.T) {
+	png := "data:image/png;base64,iVBORw0KGgo="
+	var fromDisk []interface{}
+	if err := json.Unmarshal([]byte(`[{"type":"text","text":"а это?"},{"type":"image_url","image_url":"`+png+`"}]`), &fromDisk); err != nil {
+		t.Fatal(err)
+	}
+	msgs := []AIMessage{
+		{Role: "system", Content: "sys"},
+		{Role: "user", Content: []ContentBlock{{Type: "text", Text: "что на скрине?"}, {Type: "image_url", ImageURL: png}}},
+		{Role: "assistant", Content: "кнопка"},
+		{Role: "user", Content: fromDisk},
+	}
+	blocks, ok := claudePromptContent(msgs).([]map[string]any)
+	if !ok {
+		t.Fatalf("content with images must be blocks, got %T", claudePromptContent(msgs))
+	}
+	var kinds []string
+	for _, b := range blocks {
+		kinds = append(kinds, b["type"].(string))
+	}
+	if strings.Join(kinds, ",") != "text,image,text,image,text" {
+		t.Fatalf("block order = %v", kinds)
+	}
+	src := blocks[1]["source"].(map[string]any)
+	if src["media_type"] != "image/png" || src["data"] != "iVBORw0KGgo=" || src["type"] != "base64" {
+		t.Fatalf("image source = %v", src)
+	}
+	if !strings.Contains(blocks[0]["text"].(string), "<user>\nчто на скрине?") ||
+		!strings.Contains(blocks[2]["text"].(string), "<assistant>\nкнопка") {
+		t.Fatalf("text around images lost: %q / %q", blocks[0]["text"], blocks[2]["text"])
+	}
+
+	// No images — the same plain string as before.
+	if s, ok := claudePromptContent([]AIMessage{{Role: "user", Content: "привет"}}).(string); !ok || s != "<user>\nпривет\n</user>\n\n" {
+		t.Fatalf("text-only content = %#v", s)
+	}
+}
+
+// Only the newest maxPromptImages are resent; older ones stay placeholders.
+func TestClaudePromptContentCapsImages(t *testing.T) {
+	var msgs []AIMessage
+	for i := 0; i < maxPromptImages+3; i++ {
+		msgs = append(msgs, AIMessage{Role: "user", Content: []ContentBlock{
+			{Type: "image_url", ImageURL: fmt.Sprintf("data:image/png;base64,IMG%d", i)},
+		}})
+	}
+	blocks := claudePromptContent(msgs).([]map[string]any)
+	var images []string
+	for _, b := range blocks {
+		if b["type"] == "image" {
+			images = append(images, b["source"].(map[string]any)["data"].(string))
+		}
+	}
+	if len(images) != maxPromptImages || images[0] != "IMG3" || images[len(images)-1] != fmt.Sprintf("IMG%d", maxPromptImages+2) {
+		t.Fatalf("kept %d images, first %q last %q", len(images), images[0], images[len(images)-1])
+	}
+	if !strings.Contains(blocks[0]["text"].(string), "[image]") {
+		t.Fatalf("dropped images must leave a placeholder: %q", blocks[0]["text"])
+	}
+}
+
+// codex gets the pictures as --image files (its text prompt only says
+// " [image] "), and the trailing "-" survives: --image takes several values
+// and would otherwise swallow it as one more file.
+func TestCodexPassesImagesAsFiles(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script fake binary")
+	}
+	bin := filepath.Join(t.TempDir(), "codex")
+	writeFakeClaude(t, bin, `cat >/dev/null
+last=""
+for a in "$@"; do last="$a"; done
+[ "$last" = "-" ] || { echo "prompt marker lost, last arg: $last" >&2; exit 0; }
+n=0
+while [ $# -gt 0 ]; do
+  if [ "$1" = "--image" ]; then shift; [ -s "$1" ] && n=$((n+1)) && head -c 3 "$1"; fi
+  shift
+done
+echo " images=$n"`)
+	cli := &CodexCLIClient{Path: bin}
+	res, err := cli.Stream(context.Background(), []AIMessage{
+		{Role: "user", Content: []ContentBlock{{Type: "text", Text: "что тут?"},
+			{Type: "image_url", ImageURL: "data:image/png;base64,QUJD"}}}, // "ABC"
+		{Role: "assistant", Content: "кнопка"},
+		{Role: "user", Content: []ContentBlock{{Type: "image_url", ImageURL: "data:image/jpeg;base64,REVG"}}}, // "DEF"
+	}, nil, StreamCallbacks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Content != "ABCDEF images=2" {
+		t.Fatalf("codex saw %q", res.Content)
+	}
+}
+
+// codex exits 0 after a failed login; the reason must reach the person.
+func TestCodexEmptyAnswerCarriesStderr(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script fake binary")
+	}
+	bin := filepath.Join(t.TempDir(), "codex")
+	writeFakeClaude(t, bin, `cat >/dev/null; echo "ERROR: unexpected status 401 Unauthorized" >&2`)
+	_, err := (&CodexCLIClient{Path: bin}).Stream(context.Background(), []AIMessage{{Role: "user", Content: "hi"}}, nil, StreamCallbacks{})
+	if err == nil || !strings.Contains(err.Error(), "401 Unauthorized") {
+		t.Fatalf("err = %v", err)
 	}
 }

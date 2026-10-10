@@ -256,21 +256,8 @@ func convertContentToAnthropic(c any) any {
 			if b.Type == "text" {
 				blocks = append(blocks, map[string]any{"type": "text", "text": b.Text})
 			} else if b.Type == "image_url" {
-				// Anthropic expects {type:image, source:{type:base64, media_type, data}}
-				// when the url is data:image/...;base64,...
-				if strings.HasPrefix(b.ImageURL, "data:") {
-					if idx := strings.Index(b.ImageURL, ";base64,"); idx > 5 {
-						mediaType := strings.TrimPrefix(b.ImageURL[:idx], "data:")
-						data := b.ImageURL[idx+len(";base64,"):]
-						blocks = append(blocks, map[string]any{
-							"type": "image",
-							"source": map[string]any{
-								"type":       "base64",
-								"media_type": mediaType,
-								"data":       data,
-							},
-						})
-					}
+				if blk, ok := anthropicImageBlock(b.ImageURL); ok {
+					blocks = append(blocks, blk)
 				}
 			}
 		}
@@ -278,6 +265,26 @@ func convertContentToAnthropic(c any) any {
 	default:
 		return fmt.Sprintf("%v", c)
 	}
+}
+
+// anthropicImageBlock converts a data:image/...;base64,... URL into the block
+// Anthropic expects: {type:image, source:{type:base64, media_type, data}}.
+func anthropicImageBlock(url string) (map[string]any, bool) {
+	if !strings.HasPrefix(url, "data:") {
+		return nil, false
+	}
+	idx := strings.Index(url, ";base64,")
+	if idx <= 5 {
+		return nil, false
+	}
+	return map[string]any{
+		"type": "image",
+		"source": map[string]any{
+			"type":       "base64",
+			"media_type": strings.TrimPrefix(url[:idx], "data:"),
+			"data":       url[idx+len(";base64,"):],
+		},
+	}, true
 }
 
 // convertToolsToAnthropic — OpenAI tools schema → Anthropic tools schema.

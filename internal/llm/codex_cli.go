@@ -13,9 +13,12 @@ package llm
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -41,24 +44,39 @@ var _ StreamingLLM = (*CodexCLIClient)(nil)
 // cb.OnText is called once with the full content.
 func (c *CodexCLIClient) Stream(ctx context.Context, messages []AIMessage, tools []map[string]any, cb StreamCallbacks) (*StreamResult, error) {
 	prompt := flattenMessagesToPrompt(messages)
+	// The text prompt only says " [image] "; the pictures themselves go as
+	// files through --image, or codex never sees a screenshot.
+	images, cleanup, err := writePromptImages(messages)
+	if err != nil {
+		return nil, fmt.Errorf("codex CLI: картинки: %w", err)
+	}
+	defer cleanup()
 	args := []string{"exec"}
 	if c.Model != "" {
 		args = append(args, "--model", c.Model)
 	}
-	// `codex exec -` — read the prompt from stdin.
-	args = append(args, "-")
+	for _, f := range images {
+		args = append(args, "--image", f)
+	}
+	// `codex exec -` — read the prompt from stdin. `--` first: --image takes
+	// several values and would swallow the "-" as one more file.
+	args = append(args, "--", "-")
 	cmd := exec.CommandContext(ctx, c.Path, args...)
 	cmd.Stdin = strings.NewReader(prompt)
+	stderr := &tailBuffer{max: 4096}
+	cmd.Stderr = stderr
 	out, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return nil, fmt.Errorf("codex CLI exit: %v (stderr: %s)", err, truncate(string(exitErr.Stderr), 400))
+		if _, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("codex CLI exit: %v (stderr: %s)", err, truncate(strings.TrimPrefix(stderr.suffix(), " — "), 400))
 		}
 		return nil, fmt.Errorf("codex CLI: %w", err)
 	}
 	content := strings.TrimSpace(string(out))
 	if content == "" {
-		return nil, errors.New("codex CLI: пустой ответ")
+		// codex exits 0 on a failed login too (401 after its retries): the
+		// reason is only in stderr.
+		return nil, errors.New("codex CLI: пустой ответ" + stderr.suffix())
 	}
 	if cb.OnText != nil {
 		cb.OnText(content)
@@ -85,4 +103,54 @@ func CodexCLIModels() []Model {
 		{ID: "o3", Provider: "codex-cli", Name: "o3 (Codex)", Description: "Reasoning-модель через Codex CLI.", Tier: "flagship", HasTools: false},
 		{ID: "o4-mini", Provider: "codex-cli", Name: "o4-mini (Codex)", Description: "Дешёвая reasoning-модель.", Tier: "standard", HasTools: false},
 	}
+}
+
+// writePromptImages saves the images of the conversation (the newest
+// maxPromptImages) into a temporary directory for --image. cleanup removes
+// it; it is safe to call when there were no images.
+func writePromptImages(messages []AIMessage) (paths []string, cleanup func(), err error) {
+	cleanup = func() {}
+	var blocks []map[string]any
+	for _, m := range messages {
+		if m.Role != "user" {
+			continue
+		}
+		for _, p := range contentParts(m.Content) {
+			if p.image != nil {
+				blocks = append(blocks, p.image)
+			}
+		}
+	}
+	if len(blocks) > maxPromptImages {
+		blocks = blocks[len(blocks)-maxPromptImages:]
+	}
+	if len(blocks) == 0 {
+		return nil, cleanup, nil
+	}
+	dir, err := os.MkdirTemp("", "execai-codex-img-")
+	if err != nil {
+		return nil, cleanup, err
+	}
+	cleanup = func() { _ = os.RemoveAll(dir) }
+	ext := map[string]string{"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp"}
+	for i, b := range blocks {
+		src, _ := b["source"].(map[string]any)
+		mt, _ := src["media_type"].(string)
+		data, _ := src["data"].(string)
+		raw, decErr := base64.StdEncoding.DecodeString(data)
+		if decErr != nil {
+			continue // a broken image must not cost the whole turn
+		}
+		e := ext[mt]
+		if e == "" {
+			e = ".png"
+		}
+		p := filepath.Join(dir, fmt.Sprintf("image-%02d%s", i+1, e))
+		if err := os.WriteFile(p, raw, 0o600); err != nil {
+			cleanup()
+			return nil, func() {}, err
+		}
+		paths = append(paths, p)
+	}
+	return paths, cleanup, nil
 }

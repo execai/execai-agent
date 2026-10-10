@@ -71,7 +71,7 @@ var _ StreamingLLM = (*ClaudeCLIClient)(nil)
 
 // Stream delegates to the claude CLI and parses stream-json.
 func (c *ClaudeCLIClient) Stream(ctx context.Context, messages []AIMessage, tools []map[string]any, cb StreamCallbacks) (*StreamResult, error) {
-	prompt := flattenMessagesToPrompt(messages)
+	prompt := claudePromptContent(messages)
 	args := []string{
 		"--print",
 		"--input-format", "stream-json",
@@ -155,7 +155,8 @@ func (c *ClaudeCLIClient) Stream(ctx context.Context, messages []AIMessage, tool
 
 // flattenMessagesToPrompt serializes the history into a single prompt string for claude -p.
 // A simple format with role tags: claude -p takes one user message, not a
-// structured history.
+// structured history. Text only — codex-cli uses it as is; claude-cli goes
+// through claudePromptContent, which keeps the images.
 func flattenMessagesToPrompt(messages []AIMessage) string {
 	var b strings.Builder
 	for _, m := range messages {
@@ -174,6 +175,128 @@ func flattenMessagesToPrompt(messages []AIMessage) string {
 		}
 	}
 	return b.String()
+}
+
+// maxPromptImages caps the images resent with every turn: the whole history
+// goes to the CLI (claude, codex) each time, and a long chat full of screenshots would grow
+// the request without bound. The newest ones are kept — that is what a
+// follow-up question is about.
+const maxPromptImages = 20
+
+// claudePromptContent is the content of the single user message claude -p
+// gets: the same role-tagged text as flattenMessagesToPrompt, with every
+// image of the conversation as an image block at the place it was attached.
+// Flattened to plain text, a screenshot became " [image] " — claude was told
+// there is a picture and never received it.
+//
+// Without images the content stays a plain string, exactly as before.
+func claudePromptContent(messages []AIMessage) any {
+	total := 0
+	for _, m := range messages {
+		if m.Role == "user" {
+			for _, p := range contentParts(m.Content) {
+				if p.image != nil {
+					total++
+				}
+			}
+		}
+	}
+	if total == 0 {
+		return flattenMessagesToPrompt(messages)
+	}
+	skip := total - maxPromptImages // the oldest images beyond the cap
+
+	var blocks []map[string]any
+	var text strings.Builder
+	flush := func() {
+		if text.Len() > 0 {
+			blocks = append(blocks, map[string]any{"type": "text", "text": text.String()})
+			text.Reset()
+		}
+	}
+	for _, m := range messages {
+		switch m.Role {
+		case "user":
+			text.WriteString("<user>\n")
+			for _, p := range contentParts(m.Content) {
+				switch {
+				case p.image == nil:
+					text.WriteString(p.text)
+				case skip > 0:
+					skip--
+					text.WriteString(" [image] ")
+				default:
+					flush()
+					blocks = append(blocks, p.image)
+				}
+			}
+			text.WriteString("\n</user>\n\n")
+		default:
+			text.WriteString(flattenMessagesToPrompt([]AIMessage{m}))
+		}
+	}
+	flush()
+	return blocks
+}
+
+// promptPart is a piece of message content: text, or an image already in the
+// Anthropic block form.
+type promptPart struct {
+	text  string
+	image map[string]any
+}
+
+// contentParts splits message content into text and images, in order. It
+// takes both shapes content comes in: []ContentBlock from a live turn and
+// []interface{} from a chat loaded from disk.
+func contentParts(c any) []promptPart {
+	switch v := c.(type) {
+	case nil:
+		return nil
+	case string:
+		return []promptPart{{text: v}}
+	case []ContentBlock:
+		out := make([]promptPart, 0, len(v))
+		for _, b := range v {
+			switch b.Type {
+			case "text":
+				out = append(out, promptPart{text: b.Text})
+			case "image_url":
+				out = append(out, imagePart(b.ImageURL))
+			}
+		}
+		return out
+	case []interface{}:
+		out := make([]promptPart, 0, len(v))
+		for _, item := range v {
+			m, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			switch m["type"] {
+			case "text":
+				s, _ := m["text"].(string)
+				out = append(out, promptPart{text: s})
+			case "image_url":
+				url, _ := m["image_url"].(string)
+				if obj, ok := m["image_url"].(map[string]interface{}); ok {
+					url, _ = obj["url"].(string) // OpenAI shape {image_url:{url}}
+				}
+				out = append(out, imagePart(url))
+			}
+		}
+		return out
+	}
+	return []promptPart{{text: ContentText(c)}}
+}
+
+// imagePart turns a data: URL into an image part; anything else (a remote
+// URL, a broken value) stays the text placeholder it was before.
+func imagePart(url string) promptPart {
+	if blk, ok := anthropicImageBlock(url); ok {
+		return promptPart{image: blk}
+	}
+	return promptPart{text: " [image] "}
 }
 
 // claudeRun is everything one claude -p invocation produced.
