@@ -27,6 +27,9 @@ CONF = os.environ["XDG_CONFIG_HOME"]
 checks = []
 script = []
 lock = threading.Lock()
+# The last chat request the fake provider saw: path + auth header + model.
+last_post = {}
+CUSTOM_KEY = "sk-selftest-secret"
 
 
 def check(ok, name, detail=""):
@@ -40,10 +43,31 @@ class Provider(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def do_GET(self):
+        # A custom endpoint's model list — only for the custom key, so the
+        # built-in openai source of the earlier steps keeps its own list.
+        if self.path.endswith("/models") and self.headers.get("Authorization") == "Bearer " + CUSTOM_KEY:
+            body = json.dumps({"data": [{"id": "custom-model-1", "name": "Custom One"},
+                                        {"id": "text-embedding-x"}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        self.send_response(401)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_POST(self):
         n = int(self.headers.get("Content-Length", 0))
-        self.rfile.read(n)
+        raw = self.rfile.read(n)
+        try:
+            model = json.loads(raw).get("model")
+        except Exception:
+            model = None
         with lock:
+            last_post.update(path=self.path, auth=self.headers.get("Authorization"), model=model)
             step = script.pop(0) if script else {"text": "готово"}
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -209,7 +233,51 @@ def main():
     check(got, "ответ модели отрисован", "" if got else t.screen()[before:][-160:].replace("\n", " "))
     check("rm -rf" not in t.screen()[before:], "безопасная команда не подняла диалог")
 
-    # 5. Выход по команде — чистый, без паники.
+    # 5. Свой провайдер по шагам: имя → тип интерфейса → адрес → ключ. Ход
+    #    уходит на указанный адрес с указанным ключом, модель — из списка,
+    #    который отдал сам сервер (embedding-модель отфильтрована).
+    port = srv.server_address[1]
+    t.type("/connect custom")
+    check(t.wait_text("Шаг 1/4", 15), "/connect custom спрашивает имя")
+    t.type("Selftest GW")
+    check(t.wait_text("Шаг 2/4", 10), "после имени — тип интерфейса")
+    t.type("1")
+    check(t.wait_text("Шаг 3/4", 10), "после типа — адрес")
+    t.type(f"http://127.0.0.1:{port}")
+    check(t.wait_text("Шаг 4/4", 10), "после адреса — ключ")
+    t.type(CUSTOM_KEY)
+    connected = t.wait_text("Подключено: Selftest GW", 20)
+    check(connected, "свой провайдер подключён", "" if connected else t.screen()[-240:].replace("\n", " "))
+    check("custom-model-1" in t.screen()[-2000:], "текущая модель — из списка сервера")
+    check("••••••••" in t.screen(), "ключ в ленте замаскирован")
+    hist = f"{CONF}/execai/input_history"
+    check(not (os.path.exists(hist) and CUSTOM_KEY in open(hist).read()), "ключ не попал в историю ввода")
+    with lock:
+        script[:] = [{"text": "ответ своего провайдера"}]
+    t.type("привет")
+    got = t.wait_text("ответ своего провайдера", 30)
+    check(got, "ход через свой провайдер отрисован")
+    with lock:
+        lp = dict(last_post)
+    check(lp.get("path") == "/v1/chat/completions" and lp.get("auth") == "Bearer " + CUSTOM_KEY,
+          "запрос ушёл на адрес и с ключом своего провайдера", str(lp))
+    check(lp.get("model") == "custom-model-1", "в запросе модель из живого списка", str(lp.get("model")))
+    sub = json.load(open(f"{CONF}/execai/subscriptions.json"))
+    gw = sub.get("subscriptions", {}).get("selftest-gw", {})
+    check(sub.get("active") == "selftest-gw" and gw.get("api") == "openai" and
+          gw.get("base_url") == f"http://127.0.0.1:{port}/v1", "подписка сохранена и активна", str(gw)[:200])
+
+    # Esc посреди мастера отменяет его, ничего не сохраняя.
+    t.type("/connect custom")
+    t.wait_text("Шаг 1/4", 10)
+    t.type("Ghost")
+    t.wait_text("Шаг 2/4", 10)
+    t.key(b"\x1b")
+    check(t.wait_text("отменено", 10), "Esc отменяет мастер")
+    sub = json.load(open(f"{CONF}/execai/subscriptions.json"))
+    check("ghost" not in sub.get("subscriptions", {}), "отменённый мастер ничего не сохранил")
+
+    # 6. Выход по команде — чистый, без паники.
     t.type("/exit")
     time.sleep(2)
     if t.p.poll() is None:

@@ -39,6 +39,20 @@ func TestAllSourcesAppearInEveryList(t *testing.T) {
 	keyed := []string{"zai", "zai-api", "kimi", "kimi-api", "anthropic", "openai", "openrouter"}
 
 	connect := filterConnectOptions("")
+	// custom has no fixed id to switch to — it must be offered where it is
+	// connected from: the /connect hints and the command palette.
+	if !hasLabel(connect, "custom") {
+		t.Error("custom отсутствует в подсказках /connect")
+	}
+	foundCustom := false
+	for _, it := range allCommands {
+		if it.label == "/connect custom" {
+			foundCustom = true
+		}
+	}
+	if !foundCustom {
+		t.Error("custom отсутствует в палитре команд")
+	}
 	use := filterUseOptionsFor(nil, "", "/source ")
 
 	for _, src := range keyed {

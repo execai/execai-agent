@@ -122,12 +122,12 @@ type tuiModel struct {
 	loginMode   bool
 	pendingLink *auth.LinkStart // active device-flow request, waiting for confirmation
 
-	models            []llm.Model
-	execAIModels      []llm.Model // snapshot of the original ExecAI catalog — for returning from external subscriptions
-	ollamaModels      []llm.Model // cache of models installed in Ollama (refreshed via /connect ollama and /model refresh)
-	ollamaCloudModels []llm.Model // session cache of the ollama.com cloud catalog (fetched via authed /api/tags)
-	current           llm.Model
-	lastLoginAt       time.Time // when the last device-flow finished. Guard against infinite-loop 401→device-flow→401.
+	models       []llm.Model
+	execAIModels []llm.Model     // snapshot of the original ExecAI catalog — for returning from external subscriptions
+	refreshing   map[string]bool // sources whose model list is being re-fetched in the background
+	customWiz    *customWizard   // non-nil while /connect custom asks its questions
+	current      llm.Model
+	lastLoginAt  time.Time // when the last device-flow finished. Guard against infinite-loop 401→device-flow→401.
 
 	session        *sessions.Session // auto-saved after each exchange
 	history        []llm.AIMessage   // including system
@@ -718,6 +718,10 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case tea.KeyEsc:
+			if m.customWiz != nil {
+				m.cancelCustomWizard()
+				return m, nil
+			}
 			if m.thinkingPickerActive {
 				m.thinkingPickerActive = false
 				m.statusMessage = i18n.T("effort.pickerCancelled")
@@ -765,6 +769,14 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, pendingCmd
 			}
 			line := strings.TrimSpace(m.textarea.Value())
+			// The /connect custom questions take the line before anything else:
+			// an empty answer is meaningful there ("no key"), and an answer —
+			// a key above all — must not land in the input history.
+			if m.customWiz != nil {
+				m.textarea.Reset()
+				sub, subCmd := m.customWizardInput(line)
+				return sub, tea.Batch(pendingCmd, subCmd)
+			}
 			if line == "" {
 				return m, pendingCmd
 			}
@@ -843,6 +855,10 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.toolBuf.Reset()
 		m.toolName = ""
 		m.refreshViewport()
+		return m, nil
+
+	case modelsRefreshedMsg:
+		m.applyRefreshedModels(msg.provider)
 		return m, nil
 
 	case autoStartLoginMsg:
@@ -1308,6 +1324,7 @@ var allCommands = []suggestItem{
 	{insert: "/connect codex-cli", label: "/connect codex-cli", hint: "hint.connect.codexcli"},
 	{insert: "/connect claude-cli", label: "/connect claude-cli", hint: "hint.connect.claudecli"},
 	{insert: "/connect ollama", label: "/connect ollama", hint: "hint.connect.ollama"},
+	{insert: "/connect custom", label: "/connect custom", hint: "hint.connect.custom"},
 	{insert: "/source ", label: "/source", hint: "hint.source"},
 	{insert: "/provider ", label: "/provider", hint: "hint.source"},
 	{insert: "/mouse off", label: "/mouse off", hint: "hint.mouseOff"},
@@ -1347,9 +1364,14 @@ func filterModels(models []llm.Model, prefix string) []suggestItem {
 	low := strings.ToLower(prefix)
 	for _, mod := range models {
 		if low == "" || strings.Contains(strings.ToLower(mod.ID), low) || strings.Contains(strings.ToLower(mod.Name), low) {
+			// The CLIs' "Default" has an empty ID; "/model default" finds it by name.
+			id, label := mod.ID, mod.ID
+			if id == "" {
+				id, label = "default", "default"
+			}
 			out = append(out, suggestItem{
-				insert: "/model " + mod.ID,
-				label:  mod.ID,
+				insert: "/model " + id,
+				label:  label,
 				hint:   mod.Name + " · " + mod.Provider,
 			})
 		}
@@ -2110,8 +2132,15 @@ func (m *tuiModel) handleCommand(line string) (tea.Model, tea.Cmd) {
 		arg := strings.TrimSpace(strings.TrimPrefix(cmd, "/model"))
 		next := pickByArg(m.models, arg)
 		if next == nil {
-			m.err = i18n.Tf("ui.model.notFound", arg)
-			return m, nil
+			// A subscription whose provider lists nothing (an endpoint without
+			// /models) or a custom endpoint that does not list everything it
+			// serves: take the ID as typed and remember it in the subscription.
+			typed, ok := m.typedModel(arg)
+			if !ok {
+				m.err = i18n.Tf("ui.model.notFound", arg)
+				return m, nil
+			}
+			next = typed
 		}
 		m.current = *next
 		m.cfg.SelectedModelID = next.ID
@@ -2912,6 +2941,9 @@ func (m *tuiModel) welcomeText() string {
 
 func (m *tuiModel) modelListText() string {
 	var b strings.Builder
+	if len(m.models) == 0 {
+		return i18n.T("ui.model.listEmpty")
+	}
 	maxName, maxID := 0, 0
 	for _, mm := range m.models {
 		if l := lipgloss.Width(mm.Name); l > maxName {

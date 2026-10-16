@@ -6,7 +6,7 @@
 
 # execai — терминальный AI-агент
 
-CLI-агент в духе Claude Code, который реально работает на твоей машине: читает файлы, запускает команды, ходит в kubernetes, отвечает в чате. Поддерживает **11 источников** — наш ExecAI + твои подписки Z.ai / Kimi Code / Anthropic / OpenAI + локальные Claude Code / OpenAI Codex CLI / Ollama (cloud или local). Между ними переключается на лету общей историей.
+CLI-агент в духе Claude Code, который реально работает на твоей машине: читает файлы, запускает команды, ходит в kubernetes, отвечает в чате. Поддерживает **12 источников** — наш ExecAI + твои подписки Z.ai / Kimi Code / Anthropic / OpenAI / OpenRouter + локальные Claude Code / OpenAI Codex CLI / Ollama (cloud или local) + **любой свой OpenAI- или Anthropic-совместимый адрес** (LM Studio, vLLM, LiteLLM, корпоративный шлюз…). Список моделей каждого источника приходит от самого провайдера, а не из списка, вшитого в агент. Между ними переключается на лету общей историей.
 
 ```
 execai R6.78 · openai/gpt-5 · it@execai.ru · ~
@@ -194,7 +194,7 @@ Read-only вещи (`ls`, `cat`, `git status`, `kubectl get`, `grep`) выпол
 
 ## Источники — ExecAI и подписки
 
-Агент может ходить через **9 разных источников**. История беседы общая — переключаешься на лету, контекст не теряется.
+Агент может ходить через **12 разных источников**. История беседы общая — переключаешься на лету, контекст не теряется.
 
 | Источник | Что | Биллинг |
 |---|---|---|
@@ -209,6 +209,7 @@ Read-only вещи (`ls`, `cat`, `git status`, `kubectl get`, `grep`) выпол
 | **claude-cli** | Делегирование в локальный `claude` CLI | Твоя Claude Pro/Max/Team OAuth |
 | **codex-cli** | Делегирование в локальный `codex` CLI | Твоя ChatGPT Plus/Pro/Team OAuth |
 | **ollama** | Cloud (ollama.com) или local (`ollama serve`) | Твоя подписка / 0 ₽ локально |
+| **custom** | Свой адрес: любой OpenAI- или Anthropic-совместимый сервер — LM Studio, vLLM, llama.cpp, LiteLLM, DeepSeek, Groq, корпоративный шлюз… | Как тарифицирует этот сервер |
 
 > **Бета:** сам агент на время беты бесплатен — подключайте свои ключи и подписки без оплаты. После беты для работы со своими источниками понадобится активная подписка ExecAI; модели через источник `execai` списываются по вашему плану ExecAI, как и сейчас.
 
@@ -277,7 +278,7 @@ src : ExecAI   provider : anthropic   model : claude-sonnet-4-6
 /source openai
 ```
 
-Каталог подтягивается из `/v1/models` твоего аккаунта. Primary → **gpt-5** → o3 → gpt-4.1 → gpt-4o (порядок приоритета).
+Каталог подтягивается из `/v1/models` твоего аккаунта (только чатовые модели). Primary → самый новый флагманский алиас без суффикса размера или даты (gpt-5.5, gpt-5, o3…).
 
 ### 7. Claude Code CLI (Claude Pro/Max/Team OAuth)
 
@@ -288,7 +289,7 @@ src : ExecAI   provider : anthropic   model : claude-sonnet-4-6
 /source claude-cli
 ```
 
-Модели (алиасы): sonnet / opus / haiku. Управление моделью тоже через `claude config set defaultModel <id>` снаружи.
+Модели спрашиваются у самого `claude` (тот же запрос `initialize`, что у Claude Agent SDK, — токены не тратятся): ровно то, что даёт твой план и версия CLI, с названиями Claude Code. **По умолчанию** — без `--model`, модель из `claude config`.
 
 ⚠️ **Ограничения:**
 - execai-tools (Bash/Read/Write) через claude-cli НЕ работают — он поднимает свои tools со своим разрешением
@@ -314,7 +315,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1
 /source codex-cli
 ```
 
-Модели: gpt-5, o3, o4-mini. Ограничения такие же как у claude-cli — execai-tools не работают, codex запускает свои.
+Модели спрашиваются у самого `codex` (`codex app-server` → `model/list`, как это делает расширение Codex для редактора): ровно то, что даёт твой план ChatGPT, его дефолт первым. Ограничения такие же как у claude-cli — execai-tools не работают, codex запускает свои.
 
 ### 9. Ollama — cloud или local
 
@@ -325,7 +326,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1
 /connect ollama <api-key>          # ключ с https://ollama.com/settings/keys
 /source ollama
 ```
-Модели на их серверах: **glm-5.2** (primary), qwen3-coder:480b, kimi-k2:1t, deepseek-v3.1:671b, gpt-oss:120b. Anthropic-совместимый endpoint, effort поддерживается.
+Список моделей — твоего аккаунта (`/api/tags` с ключом). Anthropic-совместимый endpoint, effort поддерживается.
 
 **Local (свой Ollama):**
 ```
@@ -335,6 +336,24 @@ ollama pull llama3.2               # снаружи, что хочешь зап�
 /source ollama
 ```
 Каталог динамически подтягивается через `/api/tags`. 0 ₽. OpenAI-совместимый endpoint.
+
+### 10. Свой провайдер — любой OpenAI- или Anthropic-совместимый адрес
+
+Локальный LM Studio / vLLM / llama.cpp, LiteLLM, корпоративный шлюз, DeepSeek, Groq, Together, Mistral — всё, что говорит на одном из двух протоколов.
+
+```
+/connect custom
+```
+спросит по шагам: **имя** → **тип интерфейса** (1 — OpenAI-совместимый `…/chat/completions`, 2 — Anthropic-совместимый `…/v1/messages`) → **адрес** (base URL) → **API-ключ** (Enter — без ключа). Список моделей берётся из `/models` сервера; если его нет — перечислишь ID моделей сам. Esc — отмена. Ключ остаётся на твоей машине и в историю ввода не попадает.
+
+Одной строкой — для скриптов и для тех, кто знает ответы:
+```
+/connect custom "LM Studio" openai http://localhost:1234/v1
+/connect custom deepseek openai https://api.deepseek.com sk-XXXXX
+/connect custom corp anthropic https://llm.corp.local sk-XXXXX --header "X-Tenant: dev"
+/connect custom vllm openai http://gpu-box:8000 --models qwen3-coder,llama-4
+```
+Из имени получается id источника: `/source lm-studio`, `/disconnect lm-studio`. Можно вставить полный URL из документации — `/chat/completions` или `/v1/messages` отрежется; нужен ли голому адресу `/v1`, агент выясняет у сервера. Модели нет в списке сервера — `/model <id>` возьмёт её как написано и запомнит. Effort/thinking работает на Anthropic-совместимых. В панели редактора то же самое: **Подключить источник → Свой провайдер**.
 
 ### Про переключение
 
@@ -358,19 +377,18 @@ ollama pull llama3.2               # снаружи, что хочешь зап�
 
 ### Что в каталоге (по source)
 
-| Source | Модели |
+Каждый список приходит **от самого провайдера** — в агент ничего не вшито, поэтому модель, которая появилась в плане, видна в тот же день, а пропавшая — исчезает. Списки запрашиваются при `/connect`, раз в сутки обновляются в фоне и хранятся для работы без сети.
+
+| Source | Откуда список |
 |---|---|
-| **execai** | ~34 модели — Claude/GPT/DeepSeek/Kimi/MiniMax/Qwen/GLM через наш backend |
-| **zai** | glm-5.2 (primary), glm-5.2[1m], glm-4.7 |
-| **kimi** | k3 (primary), kimi-for-coding (K2.7), kimi-for-coding-highspeed |
-| **kimi-api** | kimi-latest (primary), kimi-k2-turbo-preview, moonshot-v1-* (динамически из /v1/models) |
-| **anthropic** | claude-sonnet-4-6, claude-opus-4-8, claude-haiku-4-5 |
-| **openai** | gpt-5 (primary), o3, gpt-4.1, gpt-4o, o4-mini (динамически из /v1/models) |
-| **openrouter** | 400+ моделей всех вендоров, список тянется из их каталога |
-| **claude-cli** | sonnet / opus / haiku (алиасы + pinned версии) |
-| **codex-cli** | gpt-5, o3, o4-mini |
-| **ollama cloud** | glm-5.2, qwen3-coder:480b, kimi-k2:1t, deepseek-v3.1:671b, gpt-oss:120b |
-| **ollama local** | что установлено через `ollama pull` (динамически из /api/tags) |
+| **execai** | ~34 модели — Claude/GPT/DeepSeek/Kimi/MiniMax/Qwen/GLM, каталог нашего backend |
+| **zai**, **zai-api**, **kimi**, **kimi-api**, **anthropic**, **openai**, **openrouter** | `/models` провайдера с твоим ключом — с названиями от провайдера |
+| **claude-cli** | сам `claude` (модели твоего плана и версии CLI) |
+| **codex-cli** | `codex app-server` (модели твоего плана ChatGPT) |
+| **ollama** | `/api/tags` — что скачано в локальный раннер или что может твой аккаунт ollama.com |
+| **custom** | `/models` сервера плюс модели, которые ты перечислил |
+
+Не-чатовые позиции (embeddings, речь, картинки, модерация) отфильтрованы. Источник, провайдер которого ничего не перечислил, всё равно работает: `/model <id>`.
 
 Автопереключение primary при смене source. Цены/описания — в `/model`.
 

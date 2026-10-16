@@ -130,22 +130,59 @@ func maxInt(a, b int) int {
 //
 // Ключ приходит от плагина (он спрашивает его своим полем ввода). CLI-провайдеры
 // ключа не требуют — там проверяется наличие бинаря, как в TUI.
-func connect(subs *subscriptions.Store, provider, key, baseURL string) (string, error) {
+func connect(subs *subscriptions.Store, in In) (string, error) {
 	models := 0
-	provider = strings.TrimSpace(provider)
-	key = strings.TrimSpace(key)
+	provider := strings.TrimSpace(in.Value)
+	key := strings.TrimSpace(in.Key)
+	baseURL := strings.TrimSpace(in.BaseURL)
 
 	switch provider {
+	case subscriptions.SourceCustom:
+		// Any endpoint speaking the OpenAI or the Anthropic protocol; the
+		// panel asks for name, protocol, address, key and (optionally) models.
+		name := strings.TrimSpace(in.Label)
+		sub, status, err := subsconnect.PrepareCustom(subsconnect.Custom{
+			Name: name, API: in.API, BaseURL: baseURL, APIKey: key,
+			Headers: in.Headers, Models: in.Models,
+		})
+		if err != nil {
+			return "", err
+		}
+		if subsconnect.KeyRejected(status) && status != 429 {
+			return "", fmt.Errorf("%s отверг ключ (HTTP %d)", sub.BaseURL, status)
+		}
+		subs.Add(sub)
+		provider = sub.Provider
+		models = len(sub.AvailableModels) + len(sub.ManualModels)
+		if models == 0 {
+			if err := subs.Save(); err != nil {
+				return "", err
+			}
+			if err := subs.Activate(provider); err != nil {
+				return "", err
+			}
+			if err := subs.Save(); err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("подключено: %s (%s) — сервер не отдал список моделей (HTTP %d); переподключи с перечнем моделей",
+				subscriptions.DisplayName(sub), provider, status), nil
+		}
 	case subscriptions.SourceClaudeCLI:
 		if _, err := llm.NewClaudeCLIClient(""); err != nil {
 			return "", err
 		}
-		subs.Add(subscriptions.Subscription{Provider: provider, Plan: "Pro/Max (OAuth)"})
+		sub := subscriptions.Subscription{Provider: provider, Plan: "Pro/Max (OAuth)"}
+		subsconnect.Fill(&sub) // the models, asked from claude itself
+		subs.Add(sub)
+		models = len(sub.AvailableModels)
 	case subscriptions.SourceCodexCLI:
 		if _, err := llm.NewCodexCLIClient(""); err != nil {
 			return "", err
 		}
-		subs.Add(subscriptions.Subscription{Provider: provider, Plan: "ChatGPT Plus/Pro (OAuth)"})
+		sub := subscriptions.Subscription{Provider: provider, Plan: "ChatGPT Plus/Pro (OAuth)"}
+		subsconnect.Fill(&sub)
+		subs.Add(sub)
+		models = len(sub.AvailableModels)
 	case subscriptions.SourceOllama:
 		// Локальная Ollama ключа не требует; облачная — требует, и там же
 		// сразу видно, живой ли он: тянем список моделей.
@@ -156,20 +193,19 @@ func connect(subs *subscriptions.Store, provider, key, baseURL string) (string, 
 		if base == "" {
 			base = "http://localhost:11434"
 		}
-		sub := subscriptions.Subscription{Provider: provider, APIKey: key, BaseURL: base}
+		sub := subscriptions.Subscription{Provider: provider, APIKey: key, BaseURL: base, Plan: "local"}
 		if key != "" {
-			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-			ms, err := llm.FetchOllamaModelsAuth(ctx, base, key)
-			cancel()
-			if err != nil {
-				return "", fmt.Errorf("ollama.com не принял ключ: %w", err)
-			}
-			for _, m := range ms {
-				sub.AvailableModels = append(sub.AvailableModels, m.ID)
-			}
 			sub.Plan = "cloud"
 		}
+		status := subsconnect.Fill(&sub)
+		if key != "" && subsconnect.KeyRejected(status) {
+			return "", fmt.Errorf("ollama.com не принял ключ (HTTP %d)", status)
+		}
+		if key == "" && status != 200 {
+			return "", fmt.Errorf("Ollama на %s не ответила (HTTP %d) — запущена ли она?", base, status)
+		}
 		subs.Add(sub)
+		models = len(sub.AvailableModels)
 	default:
 		if !knownProvider(provider) {
 			return "", fmt.Errorf("неизвестный источник: %s", provider)
@@ -203,7 +239,7 @@ func connect(subs *subscriptions.Store, provider, key, baseURL string) (string, 
 	}
 	// Честно: ключ мы не «проверили» — там, где нет дешёвой проверки, ошибка
 	// вылезет на первом запросе, и врать «подключено успешно» нельзя.
-	note := "подключено: " + subscriptions.ProviderName(provider)
+	note := "подключено: " + subscriptions.DisplayName(subs.Subscriptions[provider])
 	switch {
 	case models > 0:
 		note += fmt.Sprintf(" — моделей доступно: %d", models)
@@ -238,6 +274,7 @@ func ConnectableOptions() []NamedItem {
 		{ID: subscriptions.SourceOllama, Label: "Ollama — локальная или облако (ключ для облака)"},
 		{ID: subscriptions.SourceClaudeCLI, Label: "Claude Code CLI (без ключа)"},
 		{ID: subscriptions.SourceCodexCLI, Label: "OpenAI Codex CLI (без ключа)"},
+		{ID: subscriptions.SourceCustom, Label: "Свой провайдер — OpenAI- или Anthropic-совместимый адрес"},
 	}
 }
 

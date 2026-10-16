@@ -32,7 +32,10 @@ type GLMClient struct {
 	APIKey        string
 	Model         string
 	ProviderLabel string // "Z.ai" / "Moonshot" / etc — for the error prefix.
-	HTTP          *http.Client
+	// Headers — extra headers of a custom provider (a gateway that wants
+	// its own tenant or auth header). Applied after the standard ones.
+	Headers map[string]string
+	HTTP    *http.Client
 }
 
 // NewGLMClient creates a client. Empty baseURL → default api.z.ai (intl).
@@ -90,10 +93,17 @@ func (c *GLMClient) Stream(ctx context.Context, messages []AIMessage, tools []ma
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	// A local server (LM Studio, llama.cpp, vLLM) often runs without a key;
+	// an empty "Bearer " is rejected by some of them as a malformed header.
+	if c.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", version.UserAgent())
 	req.Header.Set("Accept", "text/event-stream")
+	for k, v := range c.Headers {
+		req.Header.Set(k, v)
+	}
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -209,36 +219,6 @@ func readGLMSSE(r io.Reader, cb StreamCallbacks) (*StreamResult, error) {
 
 // Ensure GLMClient implements StreamingLLM.
 var _ StreamingLLM = (*GLMClient)(nil)
-
-// GLMModels — models available via the Z.ai Coding Plan (Anthropic-compatible
-// endpoint https://api.z.ai/api/anthropic). Per the Z.ai docs, this endpoint's
-// server-side mapping goes to:
-//   - glm-4.7 (default)
-//   - glm-5.2 (latest, optionally with the [1m] suffix for a 1M context)
-//
-// Billed via the subscription (Coding Plan key), not pay-per-token.
-func GLMModels() []Model {
-	return []Model{
-		{ID: "glm-5.3", Provider: "zai", Name: "GLM-5.3", Description: "Flagship coding (свежайшая)", Tier: "flagship", IsPrimary: true, HasTools: true},
-		{ID: "glm-5.3-flash", Provider: "zai", Name: "GLM-5.3-Flash", Description: "Быстрая 5.3 — дешевле и ниже латентность", Tier: "standard", HasTools: true},
-		{ID: "glm-5.2", Provider: "zai", Name: "GLM-5.2", Description: "Flagship coding (MoE 753B/40B, dual thinking)", Tier: "flagship", HasTools: true},
-		{ID: "glm-5.2[1m]", Provider: "zai", Name: "GLM-5.2 [1M ctx]", Description: "GLM-5.2 c 1M контекстом (если нужен очень большой ввод)", Tier: "flagship", HasTools: true},
-		{ID: "glm-4.7", Provider: "zai", Name: "GLM-4.7", Description: "Дефолтная мапа Coding Plan; быстрее и дешевле 5.x", Tier: "standard", HasTools: true},
-	}
-}
-
-// ZAIAPIModels — network fallback for the Z.ai open platform (pay-per-token).
-// Same models as the Coding Plan, but Provider is "zai-api": the two catalogs
-// must stay distinguishable, a request with the wrong Provider goes to the
-// wrong endpoint. The real list is fetched at /connect via GET /models.
-func ZAIAPIModels() []Model {
-	return []Model{
-		{ID: "glm-5.3", Provider: "zai-api", Name: "GLM-5.3", Description: "Flagship coding (свежайшая)", Tier: "flagship", IsPrimary: true, HasTools: true},
-		{ID: "glm-5.3-flash", Provider: "zai-api", Name: "GLM-5.3-Flash", Description: "Быстрая 5.3 — дешевле и ниже латентность", Tier: "standard", HasTools: true},
-		{ID: "glm-5.2", Provider: "zai-api", Name: "GLM-5.2", Description: "Flagship coding (MoE 753B/40B, dual thinking)", Tier: "flagship", HasTools: true},
-		{ID: "glm-4.7", Provider: "zai-api", Name: "GLM-4.7", Description: "Быстрее и дешевле 5.x", Tier: "standard", HasTools: true},
-	}
-}
 
 // withOpenAIImages переводит блоки картинок в форму OpenAI. Сообщения
 // копируются: history принадлежит вызывающему и не должен меняться.

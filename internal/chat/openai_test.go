@@ -4,11 +4,11 @@ import (
 	"testing"
 
 	"github.com/velesbsdllc/agent-vbai/internal/config"
-	"github.com/velesbsdllc/agent-vbai/internal/llm"
 	"github.com/velesbsdllc/agent-vbai/internal/subscriptions"
 )
 
-// TestApplySubscriptionSource_OpenAI — /source openai → OpenAIModels + primary gpt-5.
+// TestApplySubscriptionSource_OpenAI — /source openai → the live list of the
+// account (chat models only) + primary gpt-5.
 func TestApplySubscriptionSource_OpenAI(t *testing.T) {
 	subs := &subscriptions.Store{
 		Subscriptions: map[string]subscriptions.Subscription{
@@ -39,24 +39,8 @@ func TestApplySubscriptionSource_OpenAI(t *testing.T) {
 		if mod.Provider != "openai" {
 			t.Errorf("model %s provider = %s, want openai", mod.ID, mod.Provider)
 		}
-	}
-}
-func TestOpenAIModels_ContainsExpected(t *testing.T) {
-	models := llm.OpenAIModels()
-	got := map[string]bool{}
-	var primary string
-	for _, m := range models {
-		got[m.ID] = true
-		if m.IsPrimary {
-			primary = m.ID
+		if mod.ID == "text-embedding-3-large" {
+			t.Error("embedding model offered as a chat model")
 		}
-	}
-	for _, want := range []string{"gpt-5", "gpt-4o", "o3"} {
-		if !got[want] {
-			t.Errorf("OpenAIModels missing %q", want)
-		}
-	}
-	if primary != "gpt-5" {
-		t.Errorf("primary want gpt-5, got %q", primary)
 	}
 }

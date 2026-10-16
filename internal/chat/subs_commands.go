@@ -3,8 +3,6 @@
 package chat
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"github.com/velesbsdllc/agent-vbai/internal/version"
 	"net/http"
@@ -38,7 +36,7 @@ func (m *tuiModel) applySubscriptionSource() {
 	active := m.subs.ActiveSubscription()
 	if active == nil {
 		// ExecAI — restore the original catalog from the snapshot, otherwise after
-		// /source zai → /source execai m.models would keep GLMModels and
+		// /source zai → /source execai m.models would keep the Z.ai list and
 		// m.current.Provider would be "zai" → the request would go to /aicore-vbai/agent-stream
 		// with a foreign model and provider → 401.
 		if len(m.execAIModels) > 0 {
@@ -49,69 +47,88 @@ func (m *tuiModel) applySubscriptionSource() {
 		m.cli = m.makeLLMClient()
 		return
 	}
-	// External subscription — replace the model catalog with its own.
-	// One source of truth for every surface (TUI, ide, serve): internal/catalog.
-	// Ollama держит свой сессионный кэш (список моделей рантайма тянется один
-	// раз за сессию) — он свежее того, что записано в подписке, и идёт первым.
-	hasSessionCache := active.Provider == subscriptions.SourceOllama &&
-		(len(m.ollamaModels) > 0 || len(m.ollamaCloudModels) > 0)
-	if cat := catalog.For(active.Provider, active.AvailableModels); len(cat) > 0 && !hasSessionCache {
-		m.models = cat
-		// Refresh the live list in the background when it is missing or stale:
-		// a plan upgrade (Moderato → Allegretto) used to stay invisible forever,
-		// because the fetch only ever ran when the list was empty.
-		if connect.WantsLiveModels(active.Provider) && connect.Stale(*active) {
-			go m.refreshKimiAvailability(*active)
+	// The model list is what the provider itself reports (internal/catalog,
+	// shared with the editor panel and serve). Never fetched — a connection
+	// that could not reach the provider, or a store from an older build — ask
+	// now, briefly; merely stale — refresh in the background, the stored list
+	// serves meanwhile.
+	sub := *active
+	if len(sub.AvailableModels) == 0 && (sub.APIKey != "" || !connect.NeedsKey(sub)) {
+		if connect.Fill(&sub) == 200 {
+			m.subs.Subscriptions[sub.Provider] = sub
+			_ = m.subs.Save()
 		}
-		m.current = pickForNewCatalog(m.models, m.current)
-		m.cfg.SelectedModelID = m.current.ID
-		m.cli = m.makeLLMClient()
-		return
+	} else if connect.Stale(sub) {
+		m.refreshModelsInBackground(sub.Provider)
 	}
-	switch active.Provider {
-	case subscriptions.SourceOllama:
-		if isOllamaCloud(active.BaseURL, active.Plan) {
-			// Cloud — dynamic catalog: ollama.com serves the same /api/tags
-			// behind Bearer auth with the FULL current list (kimi-k3,
-			// deepseek-v4-flash, glm-5.2, …). Session cache; hardcoded
-			// OllamaCloudModels() only as a network-failure fallback.
-			if len(m.ollamaCloudModels) == 0 {
-				base := active.BaseURL
-				if base == "" {
-					base = "https://ollama.com"
-				}
-				ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
-				if ms, err := llm.FetchOllamaModelsAuth(ctx, base, active.APIKey); err == nil && len(ms) > 0 {
-					m.ollamaCloudModels = pickOllamaCloudPrimary(ms)
-				}
-				cancel()
-			}
-			if len(m.ollamaCloudModels) > 0 {
-				m.models = m.ollamaCloudModels
-			} else {
-				m.models = llm.OllamaCloudModels()
-			}
-		} else {
-			// Local — dynamic via /api/tags. Cache kept for the session.
-			if len(m.ollamaModels) == 0 {
-				base := active.BaseURL
-				if base == "" {
-					base = "http://localhost:11434"
-				}
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				if ms, err := llm.FetchOllamaModels(ctx, base); err == nil {
-					m.ollamaModels = ms
-				}
-				cancel()
-			}
-			m.models = m.ollamaModels
-		}
-	default:
-		// Unknown provider — fallback to the ExecAI catalog, but the client may not have worked.
-	}
-	m.current = pickForNewCatalog(m.models, m.current)
+	m.models = catalog.For(sub)
+	m.current = pickForSource(m.models, m.current, sub.Provider)
 	m.cfg.SelectedModelID = m.current.ID
 	m.cli = m.makeLLMClient()
+}
+
+// pickForSource is pickForNewCatalog that also survives an empty catalog (the
+// provider never answered). The current model then becomes a placeholder of
+// THIS source: a model of the previous source would send the request to the
+// wrong provider (source switch invariant 2). A model typed with /model for
+// such a source is stored in the subscription, so the catalog is not empty
+// the next time.
+func pickForSource(models []llm.Model, current llm.Model, provider string) llm.Model {
+	if len(models) > 0 {
+		return pickForNewCatalog(models, current)
+	}
+	if current.Provider == provider {
+		return current
+	}
+	return llm.Model{Provider: provider}
+}
+
+// modelsRefreshedMsg — a background fetch stored a fresh model list.
+type modelsRefreshedMsg struct{ provider string }
+
+// refreshModelsInBackground re-fetches a source's model list without blocking
+// the UI. The fetch works on its own copy of the store (connect.RefreshModels)
+// and the result is applied in Update — the goroutine never touches m.
+func (m *tuiModel) refreshModelsInBackground(provider string) {
+	if m.refreshing == nil {
+		m.refreshing = map[string]bool{}
+	}
+	if m.refreshing[provider] {
+		return
+	}
+	m.refreshing[provider] = true
+	go func() {
+		connect.RefreshModels(provider)
+		// Read the program only now: at boot the fetch starts before the TUI
+		// program exists. The message goes even when nothing was stored —
+		// it also clears the in-flight mark.
+		if prog := teaProgramRef; prog != nil {
+			prog.Send(modelsRefreshedMsg{provider: provider})
+		}
+	}()
+}
+
+// applyRefreshedModels picks up a list stored by refreshModelsInBackground.
+func (m *tuiModel) applyRefreshedModels(provider string) {
+	delete(m.refreshing, provider)
+	st, err := subscriptions.Load()
+	if err != nil || st == nil || m.subs == nil {
+		return
+	}
+	fresh, ok := st.Subscriptions[provider]
+	if !ok {
+		return
+	}
+	if cur, ok := m.subs.Subscriptions[provider]; ok {
+		cur.SetModels(fresh.Models, fresh.ModelsFetchedAt)
+		m.subs.Subscriptions[provider] = cur
+	}
+	if a := m.subs.ActiveSubscription(); a != nil && a.Provider == provider {
+		m.models = catalog.For(*a)
+		m.current = pickForSource(m.models, m.current, provider)
+		m.cfg.SelectedModelID = m.current.ID
+		m.cli = m.makeLLMClient()
+	}
 }
 
 // pickForNewCatalog picks a Model from the new catalog:
@@ -138,6 +155,9 @@ func pickForNewCatalog(catalog []llm.Model, current llm.Model) llm.Model {
 func sourceSupportsThinking(s *subscriptions.Store) bool {
 	if s == nil {
 		return false
+	}
+	if a := s.ActiveSubscription(); a != nil && a.IsCustom() {
+		return a.API == subscriptions.APIAnthropic
 	}
 	switch s.Active {
 	case subscriptions.SourceZAI, subscriptions.SourceAnthropic, subscriptions.SourceKimi, subscriptions.SourceClaudeCLI:
@@ -290,7 +310,7 @@ func (m *tuiModel) formatSubsList() string {
 		// The id is what you type in /source, the name is what it means —
 		// "kimi" alone never said whether it is the Coding Plan or the platform.
 		fmt.Fprintf(&b, "%s%-12s %-16s plan=%s  connected=%s\n",
-			mark, sub.Provider, subscriptions.ProviderName(sub.Provider), sub.Plan,
+			mark, sub.Provider, subscriptions.DisplayName(sub), sub.Plan,
 			sub.ConnectedAt.Format("2006-01-02"))
 	}
 	b.WriteString(i18n.T("subs.list.switchHint"))
@@ -372,6 +392,24 @@ func filterUseOptionsFor(s *subscriptions.Store, prefix, cmdPrefix string) []sug
 			})
 		}
 	}
+	// Custom endpoints have ids nobody can know in advance — list the
+	// connected ones after the built-in providers.
+	if s != nil {
+		for _, sub := range s.List() {
+			if !sub.IsCustom() {
+				continue
+			}
+			mark := ""
+			if s.Active == sub.Provider {
+				mark = "● "
+			}
+			all = append(all, suggestItem{
+				insert: cmdPrefix + " " + sub.Provider,
+				label:  mark + sub.Provider,
+				hint:   subscriptions.DisplayName(sub) + " · " + i18n.Tf("subs.hint.custom", sub.API, sub.BaseURL),
+			})
+		}
+	}
 	out := make([]suggestItem, 0, len(all))
 	for _, it := range all {
 		if low == "" || strings.Contains(strings.ToLower(it.label), low) {
@@ -397,6 +435,7 @@ func filterConnectOptions(prefix string) []suggestItem {
 		{insert: "/connect codex-cli", label: "codex-cli", hint: "subs.connectHint.codexcli"},
 		{insert: "/connect claude-cli", label: "claude-cli", hint: "subs.connectHint.claudecli"},
 		{insert: "/connect ollama", label: "ollama", hint: "subs.connectHint.ollama"},
+		{insert: "/connect custom", label: "custom", hint: "subs.connectHint.custom"},
 	}
 	out := make([]suggestItem, 0, len(all))
 	for _, it := range all {
@@ -444,15 +483,15 @@ func (m *tuiModel) startConnectFlow(arg string) string {
 		if m.subs == nil {
 			m.subs, _ = subscriptions.Load()
 		}
-		m.subs.Add(subscriptions.Subscription{
-			Provider: "claude-cli",
-			APIKey:   "",
-			Plan:     "Pro/Max (OAuth)",
-		})
+		sub := subscriptions.Subscription{Provider: "claude-cli", Plan: "Pro/Max (OAuth)"}
+		// The models of the account and of this CLI version, asked from
+		// claude itself (no tokens spent).
+		connect.Fill(&sub)
+		m.subs.Add(sub)
 		if err := m.subs.Save(); err != nil {
 			return i18n.Tf("subs.saveError", err)
 		}
-		return i18n.Tf("subs.connect.claudecliOK", cli.Describe())
+		return i18n.Tf("subs.connect.claudecliOK", cli.Describe()) + modelsNote(sub)
 	}
 	// codex-cli — same thing for the OpenAI Codex CLI (`codex` binary).
 	if provider == "codex-cli" {
@@ -462,15 +501,13 @@ func (m *tuiModel) startConnectFlow(arg string) string {
 		if m.subs == nil {
 			m.subs, _ = subscriptions.Load()
 		}
-		m.subs.Add(subscriptions.Subscription{
-			Provider: "codex-cli",
-			APIKey:   "",
-			Plan:     "ChatGPT Plus/Pro (OAuth)",
-		})
+		sub := subscriptions.Subscription{Provider: "codex-cli", Plan: "ChatGPT Plus/Pro (OAuth)"}
+		connect.Fill(&sub)
+		m.subs.Add(sub)
 		if err := m.subs.Save(); err != nil {
 			return i18n.Tf("subs.saveError", err)
 		}
-		return i18n.T("subs.connect.codexcliOK")
+		return i18n.T("subs.connect.codexcliOK") + modelsNote(sub)
 	}
 	// ollama — 2 modes:
 	//   * Cloud (default): https://ollama.com, Anthropic-compat, API key required.
@@ -495,28 +532,19 @@ func (m *tuiModel) startConnectFlow(arg string) string {
 			if len(parts) >= 3 {
 				baseURL = parts[2]
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			models, err := llm.FetchOllamaModels(ctx, baseURL)
-			cancel()
-			if err != nil {
-				return "✗ " + err.Error()
+			sub := subscriptions.Subscription{Provider: "ollama", BaseURL: baseURL, Plan: "local"}
+			if status := connect.Fill(&sub); status != 200 {
+				return i18n.Tf("subs.connect.ollamaLocalFailed", baseURL, status)
 			}
 			if m.subs == nil {
 				m.subs, _ = subscriptions.Load()
 			}
-			m.subs.Add(subscriptions.Subscription{
-				Provider: "ollama", APIKey: "", BaseURL: baseURL, Plan: "local",
-			})
+			m.subs.Add(sub)
 			if err := m.subs.Save(); err != nil {
 				return i18n.Tf("subs.saveError", err)
 			}
-			m.ollamaModels = models
-			names := make([]string, 0, len(models))
-			for _, mm := range models {
-				names = append(names, mm.ID)
-			}
 			return i18n.Tf("subs.connect.ollamaLocalOK",
-				baseURL, len(models), strings.Join(names, ", "))
+				baseURL, len(sub.AvailableModels), strings.Join(sub.AvailableModels, ", "))
 		}
 		// Cloud mode (default)
 		apiKey := parts[1]
@@ -527,13 +555,29 @@ func (m *tuiModel) startConnectFlow(arg string) string {
 		if m.subs == nil {
 			m.subs, _ = subscriptions.Load()
 		}
-		m.subs.Add(subscriptions.Subscription{
-			Provider: "ollama", APIKey: apiKey, BaseURL: baseURL, Plan: "cloud",
-		})
+		sub := subscriptions.Subscription{Provider: "ollama", APIKey: apiKey, BaseURL: baseURL, Plan: "cloud"}
+		if status := connect.Fill(&sub); connect.KeyRejected(status) {
+			return i18n.Tf("subs.connect.ollamaCloudRejected", status)
+		}
+		m.subs.Add(sub)
 		if err := m.subs.Save(); err != nil {
 			return i18n.Tf("subs.saveError", err)
 		}
-		return i18n.Tf("subs.connect.ollamaCloudOK", baseURL)
+		return i18n.Tf("subs.connect.ollamaCloudOK", baseURL) + modelsNote(sub)
+	}
+	// custom — any endpoint speaking the OpenAI or the Anthropic protocol.
+	// Bare `/connect custom` walks through the fields one by one; the full
+	// form is for scripts and for people who already know the answers.
+	if provider == subscriptions.SourceCustom {
+		rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(arg), provider))
+		if rest == "" {
+			return m.startCustomWizard()
+		}
+		c, err := parseCustomArgs(rest)
+		if err != nil {
+			return "✗ " + err.Error() + "\n\n" + i18n.T("subs.custom.usage")
+		}
+		return m.connectCustom(c)
 	}
 	if provider != "zai" && provider != "zai-api" && provider != "anthropic" && provider != "kimi" && provider != "kimi-api" && provider != "openai" && provider != "openrouter" {
 		return i18n.Tf("subs.connect.unsupported", provider)
@@ -624,9 +668,18 @@ func (m *tuiModel) startConnectFlow(arg string) string {
 	// list of tools that does not include us. Warn at connect time — afterwards
 	// it is the user's own account that gets throttled or frozen, not ours.
 	if provider == "zai" {
-		return i18n.Tf("subs.connected", provider, provider) + "\n\n" + i18n.T("subs.connect.zaiToSWarning")
+		return i18n.Tf("subs.connected", provider, provider) + modelsNote(sub) + "\n\n" + i18n.T("subs.connect.zaiToSWarning")
 	}
-	return i18n.Tf("subs.connected", provider, provider)
+	return i18n.Tf("subs.connected", provider, provider) + modelsNote(sub)
+}
+
+// modelsNote — one line about the live list after a connect: how many models
+// the provider reported, or that it reported none (and what to do then).
+func modelsNote(sub subscriptions.Subscription) string {
+	if n := len(sub.AvailableModels); n > 0 {
+		return "\n" + i18n.Tf("subs.connect.modelsCount", n)
+	}
+	return "\n" + i18n.T("subs.connect.noModels")
 }
 
 // detectKimiPlan — probe Moonshot endpoints with the same key. Try both types
@@ -691,105 +744,15 @@ func probeKimiOne(client *http.Client, a probeAttempt, apiKey string) (int, erro
 	return resp.StatusCode, nil
 }
 
-// refreshOpenAIAvailability — like refreshKimiAvailability but for SourceOpenAI.
-// Uses the same fetchKimiAvailableModels — it is a generic OpenAI-compat GET /v1/models.
-func (m *tuiModel) refreshOpenAIAvailability(active subscriptions.Subscription) {
-	avail := fetchKimiAvailableModels(active.BaseURL, active.APIKey)
-	if len(avail) == 0 || m.subs == nil {
-		return
-	}
-	sub, ok := m.subs.Subscriptions[subscriptions.SourceOpenAI]
-	if !ok {
-		return
-	}
-	sub.AvailableModels = avail
-	m.subs.Subscriptions[subscriptions.SourceOpenAI] = sub
-	_ = m.subs.Save()
-}
-
-// refreshKimiAvailability — background fetch of the available-models list and
-// saving it into the subscription. Ignores errors (the plan just stays unlabeled).
-// Works for both Kimi sources (kimi Coding Plan and kimi-api pay-per-token).
-func (m *tuiModel) refreshKimiAvailability(active subscriptions.Subscription) {
-	// Спрашиваем так, как этот провайдер привык (zai/anthropic — x-api-key,
-	// ollama — /api/tags, остальные — OpenAI-compat): раньше здесь всех
-	// спрашивали кими-способом, и для zai/anthropic с пустым BaseURL запрос
-	// уходил на api.kimi.com — живой список не обновлялся никогда.
-	base := active.BaseURL
-	if base == "" {
-		base = connect.DefaultBaseURL(active.Provider)
-	}
-	avail, _ := connect.FetchModelsFor(active.Provider, base, active.APIKey)
-	if len(avail) == 0 {
-		return
-	}
-	if m.subs == nil {
-		return
-	}
-	sub, ok := m.subs.Subscriptions[active.Provider]
-	if !ok {
-		return
-	}
-	sub.AvailableModels = avail
-	sub.ModelsFetchedAt = time.Now()
-	m.subs.Subscriptions[active.Provider] = sub
-	_ = m.subs.Save()
-}
-
-// fetchKimiAvailableModelsWithStatus — тонкая обёртка над общим пакетом:
-// сам запрос живёт в internal/connect, чтобы терминал и панель спрашивали
-// провайдера одинаково.
-func fetchKimiAvailableModelsWithStatus(baseURL, apiKey string) ([]string, int) {
-	if baseURL == "" {
-		baseURL = "https://api.kimi.com/coding"
-	}
-	return connect.FetchModels(baseURL, apiKey)
-}
-
-// fetchKimiAvailableModels — GET /v1/models on the Coding Plan endpoint.
-// Returns the list of model IDs the server reports as available;
-// used to automatically show the plan in the status bar.
-// Empty list if the endpoint does not respond or the format is unexpected.
+// fetchKimiAvailableModels — GET /v1/models on the Kimi Code endpoint: the
+// IDs the plan has (used to show the plan in the status bar). Empty when the
+// endpoint is silent. The request itself lives in internal/connect, so the
+// terminal and the panel ask the provider the same way.
 func fetchKimiAvailableModels(baseURL, apiKey string) []string {
 	if baseURL == "" {
-		baseURL = "https://api.kimi.com/coding"
+		baseURL = connect.DefaultBaseURL(subscriptions.SourceKimi)
 	}
-	// The Anthropic-compat base ends with /coding, while OpenAI-compat ends with /coding/v1.
-	// Normalize to /coding/v1/models.
-	url := strings.TrimSuffix(baseURL, "/")
-	if !strings.HasSuffix(url, "/v1") {
-		url += "/v1"
-	}
-	url += "/models"
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil
-	}
-	req.Header.Set("User-Agent", version.UserAgent())
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	client := &http.Client{Timeout: 6 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil
-	}
-	var out struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil
-	}
-	ids := make([]string, 0, len(out.Data))
-	for _, m := range out.Data {
-		if m.ID != "" {
-			ids = append(ids, m.ID)
-		}
-	}
+	ids, _ := connect.FetchModels(baseURL, apiKey)
 	return ids
 }
 
@@ -801,30 +764,4 @@ func (m *tuiModel) credsToken() string {
 		return ""
 	}
 	return m.creds.Token
-}
-
-// pickOllamaCloudPrimary reorders primary in the dynamic ollama.com catalog:
-// the server list is sorted by date, but we prefer well-known coding flagships.
-func pickOllamaCloudPrimary(ms []llm.Model) []llm.Model {
-	priority := []string{"glm-5.2", "kimi-k3", "qwen3-coder:480b-cloud", "deepseek-v4-flash", "kimi-k2.5"}
-	idx := -1
-	for _, want := range priority {
-		for i, m := range ms {
-			if m.ID == want {
-				idx = i
-				break
-			}
-		}
-		if idx >= 0 {
-			break
-		}
-	}
-	for i := range ms {
-		ms[i].IsPrimary = false
-	}
-	if idx < 0 {
-		idx = 0
-	}
-	ms[idx].IsPrimary = true
-	return ms
 }

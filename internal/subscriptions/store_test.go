@@ -126,3 +126,35 @@ func TestNilStoreMethodsDoNotPanic(t *testing.T) {
 	s.Add(Subscription{Provider: "kimi"})
 	s.Remove("kimi")
 }
+
+func TestCustomID(t *testing.T) {
+	for in, want := range map[string]string{
+		"LM Studio":     "lm-studio",
+		"vLLM @ office": "vllm-office",
+		"  corp_GW.v2 ": "corp-gw-v2",
+		"Шлюз":          "",
+		"deepseek":      "deepseek",
+	} {
+		if got := CustomID(in); got != want {
+			t.Errorf("CustomID(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for _, id := range []string{"", "kimi", "execai", "custom", strings.Repeat("a", 41)} {
+		if ValidateCustomID(id) == nil {
+			t.Errorf("ValidateCustomID(%q) должен отказать", id)
+		}
+	}
+	if ValidateCustomID("lm-studio") != nil {
+		t.Error("lm-studio — допустимый id")
+	}
+}
+
+// A custom subscription shows the name the person gave it.
+func TestSourceLabel_Custom(t *testing.T) {
+	s := &Store{Active: "lm-studio", Subscriptions: map[string]Subscription{
+		"lm-studio": {Provider: "lm-studio", Name: "LM Studio", API: APIOpenAI, Plan: APIOpenAI},
+	}}
+	if got := s.SourceLabel(); got != "LM Studio (openai)" {
+		t.Errorf("SourceLabel = %q", got)
+	}
+}

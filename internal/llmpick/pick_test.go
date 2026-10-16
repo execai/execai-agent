@@ -91,3 +91,24 @@ func typeName(v any) string {
 	}
 	return fmt.Sprintf("%T", v)
 }
+
+// A custom endpoint is reached in the protocol the person chose, at its own
+// address and with its own headers — whatever its id happens to be (even one
+// a future built-in provider might take).
+func TestClient_Custom(t *testing.T) {
+	cfg := &config.Config{ThinkingBudget: 2048}
+	mk := func(api string) *subscriptions.Store {
+		return &subscriptions.Store{Active: "corp", Subscriptions: map[string]subscriptions.Subscription{
+			"corp": {Provider: "corp", Name: "Corp", API: api, BaseURL: "https://gw.corp/v1",
+				APIKey: "k", Headers: map[string]string{"X-Tenant": "dev"}},
+		}}
+	}
+	o, ok := Client(cfg, mk(subscriptions.APIOpenAI), "m", "", "jwt").(*llm.GLMClient)
+	if !ok || o.BaseURL != "https://gw.corp/v1" || o.Headers["X-Tenant"] != "dev" || o.ProviderLabel != "Corp" {
+		t.Errorf("openai-совместимый: %#v", o)
+	}
+	a, ok := Client(cfg, mk(subscriptions.APIAnthropic), "m", "", "jwt").(*llm.AnthropicClient)
+	if !ok || a.Headers["X-Tenant"] != "dev" || a.ThinkingBudget != 2048 || a.SourceLabel != "corp" {
+		t.Errorf("anthropic-совместимый: %#v", a)
+	}
+}

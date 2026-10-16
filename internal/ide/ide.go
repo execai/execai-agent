@@ -41,8 +41,8 @@ import (
 	"github.com/velesbsdllc/agent-vbai/internal/catalog"
 	"github.com/velesbsdllc/agent-vbai/internal/compact"
 	"github.com/velesbsdllc/agent-vbai/internal/config"
-	"github.com/velesbsdllc/agent-vbai/internal/i18n"
 	subsconnect "github.com/velesbsdllc/agent-vbai/internal/connect"
+	"github.com/velesbsdllc/agent-vbai/internal/i18n"
 	"github.com/velesbsdllc/agent-vbai/internal/llm"
 	"github.com/velesbsdllc/agent-vbai/internal/llmpick"
 	"github.com/velesbsdllc/agent-vbai/internal/security"
@@ -72,6 +72,12 @@ type In struct {
 	// connect: ключ провайдера и (опционально) свой base_url
 	Key     string `json:"key,omitempty"`
 	BaseURL string `json:"base_url,omitempty"`
+	// connect custom: protocol ("openai" | "anthropic"), the name the person
+	// gave the endpoint, optional model IDs and extra headers.
+	API     string            `json:"api,omitempty"`
+	Label   string            `json:"label,omitempty"`
+	Models  []string          `json:"models,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
 	// Chat — к какому чату относится сообщение (user, stop, load_chat,
 	// cancel_wakeup, wake_now). Пусто — текущий (активный в панели).
 	Chat string `json:"chat,omitempty"`
@@ -696,7 +702,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 		// Каталог строит общий пакет: панель показывает те же имена и тот же
 		// порядок, что и терминал. Раньше здесь отдавались сырые ID с сервера
 		// без имён — отсюда «странный список моделей» в плагине.
-		ms := catalog.For(active.Provider, active.AvailableModels)
+		ms := catalog.For(*active)
 		items := make([]NamedItem, 0, len(ms))
 		for _, m := range ms {
 			// У claude-cli пустой ID — легальный «Default из конфига claude»:
@@ -729,6 +735,17 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 		return ""
 	}
 	reconcileModel := func() {
+		// A subscription whose list was never fetched (the provider was
+		// unreachable at connect, or the store predates live lists): ask now,
+		// otherwise the panel has nothing to offer.
+		if a := subs.ActiveSubscription(); a != nil && len(a.AvailableModels) == 0 &&
+			(a.APIKey != "" || !subsconnect.NeedsKey(*a)) {
+			sub := *a
+			if subsconnect.Fill(&sub) == 200 {
+				subs.Subscriptions[sub.Provider] = sub
+				_ = subs.Save()
+			}
+		}
 		items := sourceModels()
 		for _, it := range items {
 			if it.ID == cfg.SelectedModelID {
@@ -736,8 +753,20 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 				return
 			}
 		}
-		if len(items) > 0 {
-			currentID = items[0].ID
+		// The source's primary model, as the terminal picks it: the first
+		// entry is not it (Z.ai lists newest first — a -flashx variant).
+		// An empty catalog leaves no model at all rather than one of the
+		// previous source (source switch invariant 2).
+		currentID = ""
+		if a := subs.ActiveSubscription(); a != nil {
+			for _, m := range catalog.For(*a) {
+				if m.IsPrimary {
+					currentID = m.ID
+					break
+				}
+			}
+		} else if len(items) > 0 {
+			currentID = items[0].ID // the ExecAI catalog is sorted primary-first
 		}
 		cfg.SelectedModelID = currentID
 		_ = config.Save(cfg)
@@ -763,7 +792,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 			// "kimi" there said nothing about which of the two Kimi paths it is.
 			o.Sources = append(o.Sources, NamedItem{
 				ID:     sub.Provider,
-				Label:  subscriptions.ProviderName(sub.Provider),
+				Label:  subscriptions.DisplayName(sub),
 				Active: subs.ActiveSubscription() != nil && subs.ActiveSubscription().Provider == sub.Provider})
 		}
 		return o
@@ -1025,7 +1054,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 				s.emit(Out{Type: "notice", Text: "вышли из ExecAI (подписки остались)"})
 				s.emit(stateOut())
 			case "connect":
-				msg, err := connect(subs, in.Value, in.Key, in.BaseURL)
+				msg, err := connect(subs, in)
 				if err != nil {
 					s.emit(Out{Type: "error", Text: err.Error()})
 					break

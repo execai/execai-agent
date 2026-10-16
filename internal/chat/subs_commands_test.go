@@ -52,7 +52,7 @@ func TestApplySubscriptionSource_ZaiThenExecAI_RestoresCatalog(t *testing.T) {
 		t.Fatalf("после /source zai ждали glm-5.3 primary, имеем %q", m.current.ID)
 	}
 	if len(m.models) == 0 || m.models[0].Provider != "zai" {
-		t.Fatalf("каталог не переключился на GLMModels: %+v", m.models)
+		t.Fatalf("каталог не переключился на список Z.ai: %+v", m.models)
 	}
 
 	// step 2: → execai (BUG-1 was here — the catalog and current stayed zai)
@@ -77,7 +77,7 @@ func TestApplySubscriptionSource_AnthropicThenExecAI_RestoresCatalog(t *testing.
 	m := newTestModel()
 	_ = m.subs.Activate("anthropic")
 	m.applySubscriptionSource()
-	if m.current.Provider != "anthropic" || !modelInCatalog(llm.AnthropicModels(), m.current.ID) {
+	if m.current.Provider != "anthropic" || !modelInCatalog(m.models, m.current.ID) {
 		t.Fatalf("после /source anthropic state неверный: %+v", m.current)
 	}
 	wasAnthroID := m.current.ID
@@ -132,16 +132,11 @@ func TestApplySubscriptionSource_FullChain(t *testing.T) {
 	}
 }
 
-// Ollama: if the m.ollamaModels cache is populated, applySubscriptionSource
-// uses it without hitting the network. Verify that the source
-// switches correctly.
-func TestApplySubscriptionSource_Ollama_UsesCache(t *testing.T) {
+// Ollama (local): the catalog is what the runner has pulled (/api/tags), not a
+// built-in cloud list.
+func TestApplySubscriptionSource_Ollama_LocalList(t *testing.T) {
 	m := newTestModel()
 	m.subs.Add(subscriptions.Subscription{Provider: "ollama", BaseURL: "http://localhost:11434", Plan: "local"})
-	m.ollamaModels = []llm.Model{
-		{ID: "llama3.2:latest", Provider: "ollama", Name: "llama3.2:latest", IsPrimary: true, HasTools: true},
-		{ID: "qwen2.5:7b", Provider: "ollama", Name: "qwen2.5:7b", HasTools: true},
-	}
 
 	_ = m.subs.Activate("ollama")
 	m.applySubscriptionSource()
@@ -150,10 +145,14 @@ func TestApplySubscriptionSource_Ollama_UsesCache(t *testing.T) {
 		t.Fatalf("после /source ollama ждали provider=ollama, имеем %q", m.current.Provider)
 	}
 	if m.current.ID != "llama3.2:latest" {
-		t.Fatalf("ждали primary llama3.2:latest, имеем %q", m.current.ID)
+		t.Fatalf("ждали первую модель раннера llama3.2:latest, имеем %q", m.current.ID)
 	}
 	if len(m.models) != 2 {
-		t.Fatalf("каталог не подтянулся из кеша: %+v", m.models)
+		t.Fatalf("каталог не равен списку раннера: %+v", m.models)
+	}
+	// The fetched list is stored — the next switch does not ask again.
+	if got := m.subs.Subscriptions["ollama"].AvailableModels; len(got) != 2 {
+		t.Fatalf("живой список не сохранён в подписке: %v", got)
 	}
 }
 
@@ -161,9 +160,6 @@ func TestApplySubscriptionSource_Ollama_UsesCache(t *testing.T) {
 func TestApplySubscriptionSource_OllamaThenExecAI(t *testing.T) {
 	m := newTestModel()
 	m.subs.Add(subscriptions.Subscription{Provider: "ollama", Plan: "local"})
-	m.ollamaModels = []llm.Model{
-		{ID: "llama3.2:latest", Provider: "ollama", IsPrimary: true},
-	}
 	_ = m.subs.Activate("ollama")
 	m.applySubscriptionSource()
 
@@ -177,7 +173,7 @@ func TestApplySubscriptionSource_OllamaThenExecAI(t *testing.T) {
 	}
 }
 
-// Kimi source: /source kimi must pull KimiModels + primary k3.
+// Kimi source: /source kimi must pull the plan's live list + primary k3.
 // /source execai afterwards — restore the catalog, current must not
 // stay k3.
 func TestApplySubscriptionSource_KimiThenExecAI(t *testing.T) {
@@ -193,7 +189,7 @@ func TestApplySubscriptionSource_KimiThenExecAI(t *testing.T) {
 		t.Fatalf("ждали k3 primary, имеем %q", m.current.ID)
 	}
 	if len(m.models) == 0 || m.models[0].Provider != "kimi" {
-		t.Fatalf("каталог не переключился на KimiModels: %+v", m.models)
+		t.Fatalf("каталог не переключился на список Kimi: %+v", m.models)
 	}
 
 	_ = m.subs.Activate("execai")

@@ -59,6 +59,11 @@ type usageEvent struct {
 // the corresponding fetchUsage* (ExecAI / Z.ai / Anthropic / Kimi / ...).
 func fetchUsageForSource(apiBase, token string, subs *subscriptions.Store) (string, error) {
 	if subs != nil {
+		if a := subs.ActiveSubscription(); a != nil && a.IsCustom() {
+			// A custom endpoint has no quota API we could know of — the local
+			// request counter and the address it goes to.
+			return fetchUsageAnthropicCompat(a.Provider, subscriptions.DisplayName(*a), a.BaseURL)
+		}
 		switch subs.Active {
 		case subscriptions.SourceZAI:
 			return fetchUsageAnthropicCompat("zai", "Z.ai Coding Plan", "https://z.ai/manage-apikey/subscription")

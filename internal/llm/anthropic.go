@@ -39,7 +39,9 @@ type AnthropicClient struct {
 	Model          string
 	ThinkingBudget int    // 0 = thinking off; >0 → send {type:enabled, budget_tokens: N}
 	SourceLabel    string // what to write into the requests.log source field (zai/anthropic/...)
-	HTTP           *http.Client
+	// Headers — extra headers of a custom provider, applied last.
+	Headers map[string]string
+	HTTP    *http.Client
 }
 
 // NewAnthropicClient takes the base URL without /v1/messages. thinkingBudget=0 → no thinking.
@@ -126,12 +128,17 @@ func (c *AnthropicClient) Stream(ctx context.Context, messages []AIMessage, tool
 		return nil, err
 	}
 	// Z.ai Anthropic-compat accepts Bearer; the real Anthropic wants x-api-key. Send both.
-	req.Header.Set("Authorization", "Bearer "+c.APIKey)
-	req.Header.Set("x-api-key", c.APIKey)
+	if c.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+		req.Header.Set("x-api-key", c.APIKey)
+	}
 	req.Header.Set("anthropic-version", "2023-06-01")
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", version.UserAgent())
 	req.Header.Set("Accept", "text/event-stream")
+	for k, v := range c.Headers {
+		req.Header.Set(k, v)
+	}
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {

@@ -15,6 +15,7 @@ import subprocess
 import sys
 import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BIN = os.environ.get("EXECAI_BIN", "./execai")
 WS = os.environ.get("WORKDIR", "/tmp/execai-selftest-ws")
@@ -156,6 +157,65 @@ def main():
     time.sleep(1.0)
     said = " ".join(e.get("text", "") for e in a.events[before:])
     check("ключ" in said.lower(), "подключение без ключа отказано с объяснением", said[:80])
+
+    # 5b. Свой провайдер из панели: имя, тип интерфейса, адрес, ключ,
+    #     заголовки. Модели — из ответа сервера; источник виден под своим
+    #     именем и активен. Сервер без /models — модели перечисляет панель.
+    seen = {}
+
+    class Models(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            seen["auth"], seen["tenant"] = self.headers.get("Authorization"), self.headers.get("X-Tenant")
+            if self.path == "/v1/models" and seen["auth"] == "Bearer sk-ide":
+                body = json.dumps({"data": [{"id": "m-1", "name": "Model One"}, {"id": "nomic-embed-text"}]}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Models)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    check(any(c.get("id") == "custom" for c in (a.last("state") or {}).get("connectable", [])),
+          "в connectable есть свой провайдер")
+    before = len(a.events)
+    a.send({"type": "command", "name": "connect", "value": "custom", "label": "Panel GW",
+            "api": "openai", "base_url": base, "key": "sk-ide", "headers": {"X-Tenant": "t1"}})
+    end = time.time() + 15
+    st = None
+    while time.time() < end:
+        sts = [e for e in a.events[before:] if e.get("type") == "state"]
+        if sts:
+            st = sts[-1]
+            break
+        time.sleep(0.2)
+    src = next((x for x in (st or {}).get("sources", []) if x.get("id") == "panel-gw"), None)
+    check(src is not None and src.get("label") == "Panel GW" and src.get("active"),
+          "свой провайдер подключён и активен под своим именем", str(src))
+    ids = [m.get("id") for m in (st or {}).get("models", [])]
+    check(ids == ["m-1"], "модели — из ответа сервера, без embedding", str(ids))
+    check(seen.get("tenant") == "t1", "свой заголовок дошёл до сервера", str(seen))
+
+    before = len(a.events)
+    a.send({"type": "command", "name": "connect", "value": "custom", "label": "Bare",
+            "api": "anthropic", "base_url": base + "/bare", "models": ["a-1", "a-2"]})
+    time.sleep(2.0)
+    st = a.last("state") or {}
+    ids = [m.get("id") for m in st.get("models", [])]
+    check(ids == ["a-1", "a-2"], "без /models — модели из панели", str(ids))
+
+    a.send({"type": "command", "name": "disconnect", "value": "panel-gw"})
+    time.sleep(1.0)
+    st = a.last("state") or {}
+    check(not any(x.get("id") == "panel-gw" for x in st.get("sources", [])), "свой провайдер отключается")
+    srv.shutdown()
 
     # 6. Неизвестная команда не роняет процесс.
     a.send({"type": "command", "name": "такой-команды-нет"})

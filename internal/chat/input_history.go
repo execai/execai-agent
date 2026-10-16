@@ -35,8 +35,12 @@ func loadInputHistory() []string {
 	return out
 }
 
-// saveInputHistory appends a line to the history file.
+// saveInputHistory appends a line to the history file. /connect lines carry
+// API keys and stay out of it: the file is plain text and outlives the key.
 func saveInputHistory(line string) {
+	if strings.HasPrefix(strings.TrimSpace(line), "/connect ") {
+		return
+	}
 	dir, err := config.Dir()
 	if err != nil {
 		return

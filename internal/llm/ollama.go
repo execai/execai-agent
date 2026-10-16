@@ -28,19 +28,6 @@ import (
 
 const defaultOllamaBaseURL = "http://localhost:11434"
 
-// OllamaCloudModels — known models on ollama.com (turbo/cloud tier).
-// If Ollama Cloud adds a new one, we add it here by hand. The catalog
-// is small and changes rarely.
-func OllamaCloudModels() []Model {
-	return []Model{
-		{ID: "glm-5.2", Provider: "ollama", Name: "GLM-5.2", Description: "Z.ai flagship coding (MoE 753B/40B)", Tier: "flagship", IsPrimary: true, HasTools: true},
-		{ID: "qwen3-coder:480b-cloud", Provider: "ollama", Name: "Qwen3 Coder 480B", Description: "Alibaba coder MoE", Tier: "flagship", HasTools: true},
-		{ID: "kimi-k2:1t-cloud", Provider: "ollama", Name: "Kimi K2 1T", Description: "Moonshot 1T-параметров", Tier: "flagship", HasTools: true},
-		{ID: "deepseek-v3.1:671b-cloud", Provider: "ollama", Name: "DeepSeek V3.1", Description: "DeepSeek flagship", Tier: "flagship", HasTools: true},
-		{ID: "gpt-oss:120b-cloud", Provider: "ollama", Name: "GPT-OSS 120B", Description: "OpenAI open-weights", Tier: "standard", HasTools: true},
-	}
-}
-
 // OllamaClient is a client for the local Ollama.
 type OllamaClient struct {
 	BaseURL string

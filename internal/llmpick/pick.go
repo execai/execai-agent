@@ -28,6 +28,9 @@ import (
 func Client(cfg *config.Config, subs *subscriptions.Store, modelID, provider, token string) llm.StreamingLLM {
 	if subs != nil {
 		if active := subs.ActiveSubscription(); active != nil {
+			if active.IsCustom() {
+				return customClient(cfg, *active, modelID)
+			}
 			switch active.Provider {
 			case subscriptions.SourceZAI:
 				// Ключ Z.ai Coding Plan работает ТОЛЬКО через Anthropic-совместимый
@@ -118,4 +121,22 @@ func IsOllamaCloud(baseURL, plan string) bool {
 		return true
 	}
 	return strings.Contains(strings.ToLower(baseURL), "ollama.com")
+}
+
+// customClient talks to a user-defined endpoint in the protocol the person
+// chose for it. The base was normalized at /connect (see
+// connect.NormalizeCustomBase): OpenAI-style keeps its /v1, Anthropic-style
+// has none, so the clients append their usual paths.
+func customClient(cfg *config.Config, sub subscriptions.Subscription, modelID string) llm.StreamingLLM {
+	name := subscriptions.DisplayName(sub)
+	if sub.API == subscriptions.APIAnthropic {
+		c := llm.NewAnthropicClient(sub.BaseURL, sub.APIKey, modelID, cfg.ThinkingBudget)
+		c.SourceLabel = sub.Provider
+		c.Headers = sub.Headers
+		return c
+	}
+	c := llm.NewGLMClient(sub.BaseURL, sub.APIKey, modelID)
+	c.ProviderLabel = name
+	c.Headers = sub.Headers
+	return c
 }

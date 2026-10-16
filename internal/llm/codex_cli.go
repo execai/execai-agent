@@ -94,17 +94,6 @@ func (c *CodexCLIClient) Stream(ctx context.Context, messages []AIMessage, tools
 	}, nil
 }
 
-// CodexCLIModels — models available via a ChatGPT Plus/Pro subscription.
-// The exact list is defined by OpenAI's servers and updates automatically when
-// switching models via `codex config` — here we show the basic options.
-func CodexCLIModels() []Model {
-	return []Model{
-		{ID: "gpt-5", Provider: "codex-cli", Name: "GPT-5 (Codex)", Description: "Флагман через ChatGPT-подписку, роутится Codex CLI.", Tier: "flagship", IsPrimary: true, HasTools: false},
-		{ID: "o3", Provider: "codex-cli", Name: "o3 (Codex)", Description: "Reasoning-модель через Codex CLI.", Tier: "flagship", HasTools: false},
-		{ID: "o4-mini", Provider: "codex-cli", Name: "o4-mini (Codex)", Description: "Дешёвая reasoning-модель.", Tier: "standard", HasTools: false},
-	}
-}
-
 // writePromptImages saves the images of the conversation (the newest
 // maxPromptImages) into a temporary directory for --image. cleanup removes
 // it; it is safe to call when there were no images.

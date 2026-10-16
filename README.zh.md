@@ -6,7 +6,7 @@
 
 # execai — 终端 AI 编程助手
 
-execai — 终端优先的 AI 编程助手，与你喜欢的 LLM 提供方（Claude、GPT-5、Kimi K3、GLM-5.2 等）无缝协作 — 用你自己的订阅，或者用我们的。这是一个 Claude Code 风格的 CLI agent，真正跑在你自己的机器上：读文件、执行命令、与 kubernetes 对话，然后把结果聊给你听。它支持 **11 个来源** — 我们的 ExecAI 后端 + 你自己的 Z.ai / Kimi Code / Anthropic / OpenAI 订阅 + 本地的 Claude Code / OpenAI Codex CLI / Ollama（云端或本地）。你可以随时在它们之间切换，会话历史保持共享。
+execai — 终端优先的 AI 编程助手，与你喜欢的 LLM 提供方（Claude、GPT-5、Kimi K3、GLM-5.2 等）无缝协作 — 用你自己的订阅，或者用我们的。这是一个 Claude Code 风格的 CLI agent，真正跑在你自己的机器上：读文件、执行命令、与 kubernetes 对话，然后把结果聊给你听。它支持 **12 个来源** — 我们的 ExecAI 后端 + 你自己的 Z.ai / Kimi Code / Anthropic / OpenAI 订阅 + 本地的 Claude Code / OpenAI Codex CLI / Ollama（云端或本地）。你可以随时在它们之间切换，会话历史保持共享。另外还支持 **任意你自己的 OpenAI 或 Anthropic 兼容地址**（LM Studio、vLLM、LiteLLM、公司网关……）。每个来源的模型列表都来自提供商本身，而不是内置在 agent 里的列表。
 
 ```
 execai R6.78 · openai/gpt-5 · it@execai.ru · ~
@@ -190,7 +190,7 @@ Agent 会：
 
 ## 源 — ExecAI 与订阅
 
-Agent 可以对接 **11 个不同的来源**。会话历史是共享的 — 随意切换，不会丢失上下文。
+Agent 可以对接 **12 个不同的来源**。会话历史是共享的 — 随意切换，不会丢失上下文。
 
 | 源 | 是什么 | 计费 |
 |---|---|---|
@@ -205,6 +205,7 @@ Agent 可以对接 **11 个不同的来源**。会话历史是共享的 — 随�
 | **claude-cli** | 委派给你本地的 `claude` CLI | 你的 Claude Pro/Max/Team OAuth |
 | **codex-cli** | 委派给你本地的 `codex` CLI | 你的 ChatGPT Plus/Pro/Team OAuth |
 | **ollama** | 云端（ollama.com）或本地（`ollama serve`） | 你的订阅 / 本地 0 ₽ |
+| **custom** | 你自己的地址：任意 OpenAI 或 Anthropic 兼容服务器 — LM Studio、vLLM、llama.cpp、LiteLLM、DeepSeek、Groq、公司网关…… | 按该服务器的计费方式 |
 
 > **测试版：** 测试期间代理本身免费——可免费接入你自己的密钥和订阅。测试期结束后，使用自己的源需要有效的 ExecAI 订阅；通过 `execai` 源使用的模型仍按你的 ExecAI 套餐计费。
 
@@ -284,7 +285,7 @@ Moonshot AI 的另一款独立产品 — 相当于他们家的 Claude Code，有
 /source claude-cli
 ```
 
-模型（别名）：sonnet / opus / haiku。模型选择也可以在外部通过 `claude config set defaultModel <id>` 管理。
+模型直接向 `claude` 本身查询（与 Claude Agent SDK 相同的 `initialize` 请求，不消耗 token）：正是你的套餐和 CLI 版本提供的模型，使用 Claude Code 自己的名称。**默认** 不传 `--model`，使用 `claude config` 中的模型。
 
 ⚠️ **注意事项：**
 - execai 的工具（Bash/Read/Write）在 claude-cli 下**不能用** — 它会启动自己的工具，用它自己的权限
@@ -310,7 +311,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1
 /source codex-cli
 ```
 
-模型：gpt-5、o3、o4-mini。注意事项和 claude-cli 一样 — execai 的工具用不了，codex 会启动它自己的。
+模型直接向 `codex` 本身查询（`codex app-server` → `model/list`，与 Codex 编辑器扩展相同）：正是你的 ChatGPT 套餐提供的模型，它自己的默认模型排在最前。注意事项和 claude-cli 一样 — execai 的工具用不了，codex 会启动它自己的。
 
 ### 9. Ollama — 云端或本地
 
@@ -321,7 +322,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1
 /connect ollama <api-key>          # key 在 https://ollama.com/settings/keys 获取
 /source ollama
 ```
-他们服务器上的模型：**glm-5.2**（主模型）、qwen3-coder:480b、kimi-k2:1t、deepseek-v3.1:671b、gpt-oss:120b。Anthropic 兼容端点，支持 effort。
+模型列表来自你的账户（带密钥请求 `/api/tags`）。Anthropic 兼容端点，支持 effort。
 
 **本地（你自己的 Ollama）：**
 ```
@@ -331,6 +332,24 @@ ollama pull llama3.2               # 外部命令，你想跑什么就 pull 什�
 /source ollama
 ```
 模型目录通过 `/api/tags` 动态拉取。0 ₽。OpenAI 兼容端点。
+
+### 10. 自定义提供商 — 任意 OpenAI 或 Anthropic 兼容地址
+
+本地的 LM Studio / vLLM / llama.cpp 服务器、LiteLLM、公司网关、DeepSeek、Groq、Together、Mistral —— 任何支持这两种协议之一的服务。
+
+```
+/connect custom
+```
+会分步询问：**名称** → **接口类型**（1 — OpenAI 兼容 `…/chat/completions`，2 — Anthropic 兼容 `…/v1/messages`）→ **地址**（base URL）→ **API 密钥**（没有就回车）。模型列表从服务器的 `/models` 获取；如果没有，就由你自己列出模型 ID。Esc 取消。密钥只保存在你的机器上，不会写入输入历史。
+
+一行写完 —— 适合脚本，以及已经知道答案的人：
+```
+/connect custom "LM Studio" openai http://localhost:1234/v1
+/connect custom deepseek openai https://api.deepseek.com sk-XXXXX
+/connect custom corp anthropic https://llm.corp.local sk-XXXXX --header "X-Tenant: dev"
+/connect custom vllm openai http://gpu-box:8000 --models qwen3-coder,llama-4
+```
+名称会成为来源 id：`/source lm-studio`、`/disconnect lm-studio`。可以直接粘贴文档里的完整端点 URL —— `/chat/completions` 或 `/v1/messages` 会被去掉；裸地址是否需要 `/v1`，由 agent 询问服务器后确定。服务器没有列出的模型：`/model <id>` 会按输入使用并记住。Anthropic 兼容的自定义端点支持 effort/thinking。编辑器面板中流程相同：**连接来源 → 自定义提供商**。
 
 ### 关于切换
 
@@ -354,19 +373,18 @@ ollama pull llama3.2               # 外部命令，你想跑什么就 pull 什�
 
 ### 目录里都有什么（按源）
 
-| 源 | 模型 |
+每个列表都 **来自提供商本身** —— agent 里没有内置任何列表，所以套餐新增的模型当天就会出现，下架的模型也会消失。列表在 `/connect` 时获取，每天在后台刷新一次，并保存以便离线使用。
+
+| 来源 | 列表从哪里来 |
 |---|---|
-| **execai** | 约 34 个模型 — 通过我们的后端接入 Claude/GPT/DeepSeek/Kimi/MiniMax/Qwen/GLM |
-| **zai** | glm-5.2（主模型）、glm-5.2[1m]、glm-4.7 |
-| **kimi** | k3（主模型）、kimi-for-coding（K2.7）、kimi-for-coding-highspeed |
-| **kimi-api** | kimi-latest（主模型）、kimi-k2-turbo-preview、moonshot-v1-*（从 /v1/models 动态获取） |
-| **anthropic** | claude-sonnet-4-6、claude-opus-4-8、claude-haiku-4-5 |
-| **openai** | gpt-5（主模型）、o3、gpt-4.1、gpt-4o、o4-mini（从 /v1/models 动态获取） |
-| **openrouter** | 400+ 个各厂商模型，实时取自其目录 |
-| **claude-cli** | sonnet / opus / haiku（别名 + 固定版本） |
-| **codex-cli** | gpt-5、o3、o4-mini |
-| **ollama cloud** | glm-5.2、qwen3-coder:480b、kimi-k2:1t、deepseek-v3.1:671b、gpt-oss:120b |
-| **ollama local** | 你通过 `ollama pull` 安装的任何模型（从 /api/tags 动态获取） |
+| **execai** | 约 34 个模型 —— Claude/GPT/DeepSeek/Kimi/MiniMax/Qwen/GLM，我们后端的目录 |
+| **zai**、**zai-api**、**kimi**、**kimi-api**、**anthropic**、**openai**、**openrouter** | 用你的密钥请求提供商的 `/models` —— 使用提供商自己的模型名称 |
+| **claude-cli** | `claude` 本身（你的套餐和 CLI 版本的模型） |
+| **codex-cli** | `codex app-server`（你的 ChatGPT 套餐的模型） |
+| **ollama** | `/api/tags` —— 本地运行器已下载的模型，或你的 ollama.com 账户可运行的模型 |
+| **custom** | 服务器的 `/models`，加上你列出的模型 |
+
+非对话类条目（embeddings、语音、图像、审核）会被过滤掉。提供商没有列出任何模型的来源也照样能用：`/model <id>`。
 
 切换源时主模型会自动切换。价格和说明都在 `/model` 里。
 

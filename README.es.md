@@ -6,7 +6,7 @@
 
 # execai — un agente de IA para la terminal
 
-execai es un agente de codificación con IA nacido en la terminal que funciona con tus proveedores de LLM favoritos (Claude, GPT-5, Kimi K3, GLM-5.2 y más): trae tu propia suscripción o usa la nuestra. Un agente CLI al estilo de Claude Code que de verdad se ejecuta en tu máquina: lee archivos, ejecuta comandos, habla con kubernetes y te responde en el chat. Admite **11 fuentes**: nuestro backend de ExecAI + tus suscripciones de Z.ai / Kimi Code / Anthropic / OpenAI + tu Claude Code / OpenAI Codex CLI / Ollama local (en la nube o en local). Puedes cambiar entre ellas al vuelo compartiendo el historial de la conversación.
+execai es un agente de codificación con IA nacido en la terminal que funciona con tus proveedores de LLM favoritos (Claude, GPT-5, Kimi K3, GLM-5.2 y más): trae tu propia suscripción o usa la nuestra. Un agente CLI al estilo de Claude Code que de verdad se ejecuta en tu máquina: lee archivos, ejecuta comandos, habla con kubernetes y te responde en el chat. Admite **12 fuentes**: nuestro backend de ExecAI + tus suscripciones de Z.ai / Kimi Code / Anthropic / OpenAI + tu Claude Code / OpenAI Codex CLI / Ollama local (en la nube o en local). Puedes cambiar entre ellas al vuelo compartiendo el historial de la conversación. Además, **cualquier dirección propia compatible con OpenAI o Anthropic** (LM Studio, vLLM, LiteLLM, una pasarela corporativa…). La lista de modelos de cada fuente viene del propio proveedor, no de una lista integrada en el agente.
 
 ```
 execai R6.78 · openai/gpt-5 · it@execai.ru · ~
@@ -190,7 +190,7 @@ Navegación: ← → o Tab para mover el foco, Enter para confirmar, o los atajo
 
 ## Fuentes — ExecAI y suscripciones
 
-El agente puede hablar con **11 fuentes distintas**. El historial de la conversación se comparte: cambia al vuelo sin perder el contexto.
+El agente puede hablar con **12 fuentes distintas**. El historial de la conversación se comparte: cambia al vuelo sin perder el contexto.
 
 | Fuente | Qué es | Facturación |
 |---|---|---|
@@ -205,6 +205,7 @@ El agente puede hablar con **11 fuentes distintas**. El historial de la conversa
 | **claude-cli** | Delega en tu CLI local `claude` | Tu OAuth de Claude Pro/Max/Team |
 | **codex-cli** | Delega en tu CLI local `codex` | Tu OAuth de ChatGPT Plus/Pro/Team |
 | **ollama** | Cloud (ollama.com) o local (`ollama serve`) | Tu suscripción / 0 ₽ en local |
+| **custom** | Tu propia dirección: cualquier servidor compatible con OpenAI o Anthropic — LM Studio, vLLM, llama.cpp, LiteLLM, DeepSeek, Groq, una pasarela corporativa… | Como facture ese servidor |
 
 > **Beta:** el agente en sí es gratuito durante la beta — conecta tus propias claves y suscripciones sin coste. Tras la beta, usar tus propias fuentes requerirá una suscripción ExecAI activa; los modelos a través de la fuente `execai` se cobran por tu plan ExecAI, como hasta ahora.
 
@@ -284,7 +285,7 @@ Si ya tienes `claude` (Claude Code) instalado y una suscripción **Pro/Max/Team*
 /source claude-cli
 ```
 
-Modelos (aliases): sonnet / opus / haiku. La selección del modelo también se gestiona externamente vía `claude config set defaultModel <id>`.
+Los modelos se le piden al propio `claude` (la misma petición `initialize` que usa el Claude Agent SDK, sin gastar tokens): exactamente lo que ofrecen tu plan y tu versión del CLI, con los nombres de Claude Code. **Predeterminado** funciona sin `--model`: el modelo de `claude config`.
 
 ⚠️ **Salvedades:**
 - Las herramientas de execai (Bash/Read/Write) NO funcionan a través de claude-cli: éste lanza sus propias herramientas con sus propios permisos
@@ -310,7 +311,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1
 /source codex-cli
 ```
 
-Modelos: gpt-5, o3, o4-mini. Mismas salvedades que claude-cli: las herramientas de execai no funcionan, codex lanza las suyas.
+Los modelos se le piden al propio `codex` (`codex app-server` → `model/list`, lo que usa la extensión de Codex para el editor): exactamente lo que ofrece tu plan de ChatGPT, su predeterminado primero. Mismas salvedades que claude-cli: las herramientas de execai no funcionan, codex lanza las suyas.
 
 ### 9. Ollama — nube o local
 
@@ -321,7 +322,7 @@ Dos modos bajo el mismo comando:
 /connect ollama <api-key>          # clave en https://ollama.com/settings/keys
 /source ollama
 ```
-Modelos en sus servidores: **glm-5.2** (primario), qwen3-coder:480b, kimi-k2:1t, deepseek-v3.1:671b, gpt-oss:120b. Endpoint compatible con Anthropic, effort soportado.
+La lista de modelos es la de tu cuenta (`/api/tags` con tu clave). Endpoint compatible con Anthropic, effort soportado.
 
 **Local (tu propio Ollama):**
 ```
@@ -331,6 +332,24 @@ ollama pull llama3.2               # aparte, lo que quieras ejecutar
 /source ollama
 ```
 El catálogo se extrae dinámicamente vía `/api/tags`. 0 ₽. Endpoint compatible con OpenAI.
+
+### 10. Proveedor propio — cualquier dirección compatible con OpenAI o Anthropic
+
+Un servidor local de LM Studio / vLLM / llama.cpp, LiteLLM, una pasarela corporativa, DeepSeek, Groq, Together, Mistral: cualquier cosa que hable uno de los dos protocolos.
+
+```
+/connect custom
+```
+pregunta paso a paso: **nombre** → **tipo de interfaz** (1 — compatible con OpenAI `…/chat/completions`, 2 — compatible con Anthropic `…/v1/messages`) → **dirección** (base URL) → **clave API** (Enter si no hay). La lista de modelos se obtiene de `/models` del servidor; si no la tiene, indicas tú los ID de los modelos. Esc cancela. La clave se queda en tu máquina y nunca va al historial de entrada.
+
+En una línea, para scripts y para quien ya sabe las respuestas:
+```
+/connect custom "LM Studio" openai http://localhost:1234/v1
+/connect custom deepseek openai https://api.deepseek.com sk-XXXXX
+/connect custom corp anthropic https://llm.corp.local sk-XXXXX --header "X-Tenant: dev"
+/connect custom vllm openai http://gpu-box:8000 --models qwen3-coder,llama-4
+```
+El nombre se convierte en el id de la fuente: `/source lm-studio`, `/disconnect lm-studio`. Puedes pegar la URL completa del endpoint de la documentación: `/chat/completions` o `/v1/messages` se recorta; si una dirección sin ruta necesita `/v1`, el agente lo averigua preguntando al servidor. Un modelo que el servidor no lista: `/model <id>` lo toma tal cual y lo recuerda. Effort/thinking funciona en los compatibles con Anthropic. El panel del editor tiene el mismo flujo: **Conectar una fuente → Proveedor propio**.
 
 ### Sobre el cambio de fuente
 
@@ -354,19 +373,18 @@ El autocompletado es más cómodo:
 
 ### Qué hay en el catálogo (por fuente)
 
-| Fuente | Modelos |
+Cada lista viene **del propio proveedor**: en el agente no hay nada integrado, así que un modelo que gana tu plan aparece el mismo día y uno que pierde desaparece. Las listas se piden en `/connect`, se actualizan una vez al día en segundo plano y se guardan para trabajar sin red.
+
+| Fuente | De dónde viene la lista |
 |---|---|
-| **execai** | ~34 modelos — Claude/GPT/DeepSeek/Kimi/MiniMax/Qwen/GLM a través de nuestro backend |
-| **zai** | glm-5.2 (primario), glm-5.2[1m], glm-4.7 |
-| **kimi** | k3 (primario), kimi-for-coding (K2.7), kimi-for-coding-highspeed |
-| **kimi-api** | kimi-latest (primario), kimi-k2-turbo-preview, moonshot-v1-* (dinámicamente desde /v1/models) |
-| **anthropic** | claude-sonnet-4-6, claude-opus-4-8, claude-haiku-4-5 |
-| **openai** | gpt-5 (primario), o3, gpt-4.1, gpt-4o, o4-mini (dinámicamente desde /v1/models) |
-| **openrouter** | Más de 400 modelos de todos los proveedores, tomados de su catálogo |
-| **claude-cli** | sonnet / opus / haiku (aliases + versiones fijadas) |
-| **codex-cli** | gpt-5, o3, o4-mini |
-| **ollama cloud** | glm-5.2, qwen3-coder:480b, kimi-k2:1t, deepseek-v3.1:671b, gpt-oss:120b |
-| **ollama local** | lo que hayas instalado con `ollama pull` (dinámicamente desde /api/tags) |
+| **execai** | ~34 modelos — Claude/GPT/DeepSeek/Kimi/MiniMax/Qwen/GLM, el catálogo de nuestro backend |
+| **zai**, **zai-api**, **kimi**, **kimi-api**, **anthropic**, **openai**, **openrouter** | `/models` del proveedor con tu clave, con los nombres de modelo del proveedor |
+| **claude-cli** | el propio `claude` (modelos de tu plan y tu versión del CLI) |
+| **codex-cli** | `codex app-server` (modelos de tu plan de ChatGPT) |
+| **ollama** | `/api/tags`: lo que tiene descargado el runner local o lo que puede ejecutar tu cuenta de ollama.com |
+| **custom** | `/models` del servidor más los modelos que indicaste |
+
+Las entradas que no son de chat (embeddings, voz, imágenes, moderación) se filtran. Una fuente cuyo proveedor no lista nada sigue funcionando: `/model <id>`.
 
 El primario se cambia automáticamente al cambiar de fuente. Precios y descripciones viven en `/model`.
 

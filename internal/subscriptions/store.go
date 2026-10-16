@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/velesbsdllc/agent-vbai/internal/config"
@@ -18,18 +20,80 @@ import (
 
 // Subscription is the account for a single provider.
 type Subscription struct {
-	Provider string `json:"provider"`           // "zai" | "anthropic" | "openai"
+	Provider string `json:"provider"`           // "zai" | "anthropic" | "openai" | a custom id
 	APIKey   string `json:"api_key"`            // bearer token for the provider API
 	BaseURL  string `json:"base_url,omitempty"` // override (e.g. open.bigmodel.cn for CN)
 	Plan     string `json:"plan,omitempty"`     // e.g. "coding" for Z.ai
 	// Model IDs available on the subscription — filled during /connect by
 	// querying the provider's /models endpoint. Empty if the endpoint is unsupported.
 	AvailableModels []string `json:"available_models,omitempty"`
+	// Models — the same live list with what the provider says about each
+	// model (display name, description, its own default). AvailableModels
+	// stays as the bare IDs: older builds read only that field.
+	Models []ModelMeta `json:"models,omitempty"`
 	// When that list was fetched — an empty value means "unknown, refetch".
 	// Without it a plan upgrade stayed invisible: the list was only ever
 	// fetched while it was empty.
 	ModelsFetchedAt time.Time `json:"models_fetched_at,omitempty"`
 	ConnectedAt     time.Time `json:"connected_at"`
+	// ManualModels — model IDs the person typed (/model <id>, --models): an
+	// endpoint without a /models route, or one that does not list everything
+	// it serves. Shown first, before whatever the provider reports.
+	ManualModels []string `json:"manual_models,omitempty"`
+
+	// Custom provider: any endpoint that speaks one of the two wire
+	// protocols (a local LM Studio / vLLM / llama.cpp server, a corporate
+	// gateway, LiteLLM, DeepSeek, Groq…). API is what marks a subscription as
+	// custom; built-in providers leave all of these empty.
+	API     string            `json:"api,omitempty"`     // APIOpenAI | APIAnthropic
+	Name    string            `json:"name,omitempty"`    // what the user called it
+	Headers map[string]string `json:"headers,omitempty"` // extra HTTP headers on every request
+}
+
+// ModelMeta is one entry of a provider's live model list. Only the ID is
+// guaranteed; the rest is filled when the provider sends it.
+type ModelMeta struct {
+	ID          string `json:"id"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	// Default — the provider marks this model as its own recommendation
+	// (Codex isDefault, Claude Code "default").
+	Default bool `json:"default,omitempty"`
+}
+
+// Wire protocols a custom provider can speak.
+const (
+	// APIOpenAI — POST {base}/chat/completions, GET {base}/models, Bearer key.
+	APIOpenAI = "openai"
+	// APIAnthropic — POST {base}/v1/messages, GET {base}/v1/models, x-api-key.
+	APIAnthropic = "anthropic"
+)
+
+// IsCustom reports whether the subscription is a user-defined endpoint
+// rather than one of the built-in providers.
+func (s Subscription) IsCustom() bool { return s.API != "" }
+
+// SetModels stores a freshly fetched model list in both forms.
+func (s *Subscription) SetModels(ms []ModelMeta, at time.Time) {
+	s.Models = ms
+	s.AvailableModels = make([]string, 0, len(ms))
+	for _, m := range ms {
+		s.AvailableModels = append(s.AvailableModels, m.ID)
+	}
+	s.ModelsFetchedAt = at
+}
+
+// LiveModels returns the stored live list. Subscriptions written by builds
+// that kept only the bare IDs are read too — every model then has just an ID.
+func (s Subscription) LiveModels() []ModelMeta {
+	if len(s.Models) > 0 {
+		return s.Models
+	}
+	out := make([]ModelMeta, 0, len(s.AvailableModels))
+	for _, id := range s.AvailableModels {
+		out = append(out, ModelMeta{ID: id})
+	}
+	return out
 }
 
 // Source — where to get the model from: the ExecAI gateway or an external subscription.
@@ -74,8 +138,58 @@ const (
 	// defaults to http://localhost:11434, the model catalog is dynamic
 	// (via GET /api/tags), billed at 0 ₽.
 	SourceOllama = "ollama"
-	// SourceOpenAI = "openai"  // TODO once they open an official OAuth/API for Plus
+	// SourceCustom — the word typed in `/connect custom`. It is never stored
+	// as a key: every custom endpoint gets its own id (see CustomID).
+	SourceCustom = "custom"
 )
+
+// BuiltinSources — ids reserved by built-in providers. A custom provider may
+// not take one of them, otherwise `/source kimi` would stop meaning Kimi.
+func BuiltinSources() []string {
+	return []string{
+		SourceExecAI, SourceZAI, SourceZAIAPI, SourceKimi, SourceKimiAPI,
+		SourceOpenAI, SourceOpenRouter, SourceAnthropic, SourceClaudeCLI,
+		SourceCodexCLI, SourceOllama, SourceCustom,
+	}
+}
+
+// CustomID turns the name a person gave an endpoint into the id typed in
+// `/source <id>`: lower case, latin letters, digits and dashes.
+// "LM Studio" → "lm-studio", "vLLM @ office" → "vllm-office"; a name with no
+// latin letters or digits gives "" and the caller asks for another one.
+func CustomID(name string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(strings.TrimSpace(name)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			dash = false
+		case r == '-' || r == '_' || r == '.' || r == ' ':
+			if b.Len() > 0 && !dash {
+				b.WriteByte('-')
+				dash = true
+			}
+		}
+	}
+	return strings.TrimRight(b.String(), "-")
+}
+
+// ValidateCustomID explains why an id cannot name a custom provider.
+func ValidateCustomID(id string) error {
+	if id == "" {
+		return errors.New("имя должно содержать латинские буквы или цифры (из него получается id для /source)")
+	}
+	if len(id) > 40 {
+		return errors.New("имя длиннее 40 символов")
+	}
+	for _, b := range BuiltinSources() {
+		if id == b {
+			return fmt.Errorf("%q — встроенный источник, выбери другое имя", id)
+		}
+	}
+	return nil
+}
 
 // Store — all subscriptions plus which one is active.
 type Store struct {
@@ -231,6 +345,15 @@ func ProviderName(provider string) string {
 	return provider
 }
 
+// DisplayName — the on-screen name of a subscription: the name the user gave
+// a custom endpoint, the readable provider name otherwise.
+func DisplayName(sub Subscription) string {
+	if sub.IsCustom() && sub.Name != "" {
+		return sub.Name
+	}
+	return ProviderName(sub.Provider)
+}
+
 // SourceLabel is a human-friendly name of the current source for the status bar.
 func (s *Store) SourceLabel() string {
 	if s == nil {
@@ -240,7 +363,7 @@ func (s *Store) SourceLabel() string {
 		return "ExecAI"
 	}
 	if sub, ok := s.Subscriptions[s.Active]; ok {
-		name := ProviderName(sub.Provider)
+		name := DisplayName(sub)
 		// Derive the subscription tier from the available models — /connect
 		// automatically detected what is actually accessible. More accurate than the plan name.
 		if tier := deriveKimiTier(sub); tier != "" {
@@ -291,5 +414,8 @@ func (s *Store) List() []Subscription {
 	for _, sub := range s.Subscriptions {
 		out = append(out, sub)
 	}
+	// Map order is random: without sorting every menu reshuffled itself
+	// between two openings.
+	sort.Slice(out, func(i, j int) bool { return out[i].Provider < out[j].Provider })
 	return out
 }
