@@ -26,3 +26,6 @@ target/
 # Артефакты самопрогона: логи, снимки, временные профили редактора.
 .selftest/
 scripts/selftest/node_modules/
+_wt/
+# stray symlink to ~/.ssh must never be tracked
+s

@@ -275,6 +275,7 @@ func (m *tuiModel) handleSubsCommand(cmd string) (bool, string) {
 		if m.loginMode && m.subs.ActiveSubscription() != nil {
 			m.loginMode = false
 			m.textarea.Placeholder = i18n.T("placeholder.chat")
+			m.leaveLoginScreen()
 		}
 		return true, i18n.Tf("subs.sourceSwitched", m.subs.SourceLabel(), m.current.ID)
 
@@ -664,9 +665,8 @@ func (m *tuiModel) startConnectFlow(arg string) string {
 		}
 		return i18n.Tf("subs.connected.via", provider, label, extra, provider)
 	}
-	// Z.ai Coding Plan: their usage policy limits the subscription to a closed
-	// list of tools that does not include us. Warn at connect time — afterwards
-	// it is the user's own account that gets throttled or frozen, not ours.
+	// Z.ai Coding Plan: Z.ai allows it in this agent on one condition — the
+	// agent is not presented as Claude Code. Say so at connect time.
 	if provider == "zai" {
 		return i18n.Tf("subs.connected", provider, provider) + modelsNote(sub) + "\n\n" + i18n.T("subs.connect.zaiToSWarning")
 	}

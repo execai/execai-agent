@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/velesbsdllc/agent-vbai/internal/compact"
@@ -33,7 +34,14 @@ func (m *tuiModel) compactCmd() func() interface{} {
 	cut := compact.Cut(hist, compactKeepTail)
 	prefix := hist[1:cut] // skip system
 	cli := m.cli
+	gate := m.planGate()
 	return func() interface{} {
+		// Summarizing is a model call too, so it passes the plan gate.
+		if gate != nil {
+			if v := gate(context.Background()); !v.Allowed {
+				return compactDoneMsg{err: errors.New(v.Message())}
+			}
+		}
 		summary, err := compact.Summarize(context.Background(), cli, prefix)
 		if err != nil {
 			return compactDoneMsg{err: err}

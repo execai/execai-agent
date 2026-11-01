@@ -29,8 +29,10 @@ import (
 	"github.com/velesbsdllc/agent-vbai/internal/agent"
 	"github.com/velesbsdllc/agent-vbai/internal/auth"
 	"github.com/velesbsdllc/agent-vbai/internal/config"
+	"github.com/velesbsdllc/agent-vbai/internal/i18n"
 	"github.com/velesbsdllc/agent-vbai/internal/llm"
 	"github.com/velesbsdllc/agent-vbai/internal/llmpick"
+	"github.com/velesbsdllc/agent-vbai/internal/plan"
 	"github.com/velesbsdllc/agent-vbai/internal/subscriptions"
 	"github.com/velesbsdllc/agent-vbai/internal/tools"
 	"github.com/velesbsdllc/agent-vbai/internal/version"
@@ -127,6 +129,19 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 	if p := AuditPath(); p != "" {
 		fmt.Printf("Журнал выполненного: %s\n", p)
 	}
+
+	// Plan gate: a task on the ExecAI models asks it before the model is
+	// called. Billing is refreshed in the background and daily only while
+	// the ExecAI models are the active source (my_plan may renew a period);
+	// if the gate already says no, the person learns it now.
+	i18n.Setup(cfg.Locale)
+	gate := plan.New(cfg.APIBase)
+	gate.Start(ctx, plan.OnExecAI)
+	startSubs, _ := subscriptions.Load()
+	if v := gate.Check(ctx, plan.RouteOf(startSubs)); !v.Allowed {
+		fmt.Println(i18n.T("plan.serve.startWarn"))
+		fmt.Println(v.Message())
+	}
 	// Самая частая жалоба на фоновый режим — «закрыл терминал, агент умер».
 	// Процесс привязан к сессии, и подсказать про это дешевле, чем городить
 	// собственную демонизацию.
@@ -188,7 +203,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 		}
 
 		for _, t := range tasks {
-			runTask(ctx, cfg, cr, t, opts, strict, audit)
+			runTask(ctx, cfg, cr, t, opts, strict, audit, gate)
 		}
 	}
 }
@@ -236,7 +251,7 @@ func displayName(cr *config.Credentials) string {
 
 // runTask выполняет одну задачу и отправляет результат.
 func runTask(ctx context.Context, cfg *config.Config, cr *config.Credentials, t Task, opts Options,
-	strict bool, audit *auditLog) {
+	strict bool, audit *auditLog, gate *plan.Checker) {
 	prompt := extractPrompt(t.Payload)
 	if prompt == "" {
 		postResult(ctx, cfg, cr.Token, t.ID, "error", "пустая задача")
@@ -244,6 +259,9 @@ func runTask(ctx context.Context, cfg *config.Config, cr *config.Credentials, t 
 	}
 	fmt.Printf("\n▶ задача %s: %s\n", short(t.ID), firstLine(prompt))
 	audit.setTask(t.ID)
+	if !gateTask(ctx, cfg, cr.Token, t, gate) {
+		return
+	}
 
 	// Каталог задачи — тот, что привязан к её проекту. Выполнять в текущем
 	// каталоге демона нельзя: он мог быть запущен где угодно, и задача
@@ -257,12 +275,32 @@ func runTask(ctx context.Context, cfg *config.Config, cr *config.Credentials, t 
 
 	out, err := execute(ctx, cfg, cr, prompt, cwd, t.ID, opts, strict, audit)
 	if err != nil {
+		if errors.Is(err, llm.ErrPaymentRequired) && gate != nil {
+			gate.RefreshAsync() // the plan has most likely just ended
+		}
 		postResult(ctx, cfg, cr.Token, t.ID, "error", err.Error())
 		fmt.Printf("✗ %v\n", err)
 		return
 	}
 	postResult(ctx, cfg, cr.Token, t.ID, "final", out)
 	fmt.Printf("✓ задача %s выполнена (%d символов)\n", short(t.ID), len([]rune(out)))
+}
+
+// gateTask asks the plan gate before a task reaches the model. A refusal is
+// the task's result: the task is already acked, the web chat shows why, and
+// the model is not called. Returns whether the task may run.
+func gateTask(ctx context.Context, cfg *config.Config, token string, t Task, gate *plan.Checker) bool {
+	if gate == nil {
+		return true
+	}
+	subs, _ := subscriptions.Load()
+	v := gate.Check(ctx, plan.RouteOf(subs))
+	if v.Allowed {
+		return true
+	}
+	postResult(ctx, cfg, token, t.ID, "error", v.Message())
+	fmt.Println(i18n.Tf("plan.serve.refused", short(t.ID)))
+	return false
 }
 
 // execute запускает агентный цикл в нужном каталоге.

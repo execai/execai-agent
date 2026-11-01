@@ -66,7 +66,7 @@ var esMessages = map[string]string{
 	"hint.connect.zai":            "conectar Z.ai GLM Coding Plan (requiere api-key)",
 	"hint.connect.kimi":           "Kimi Code Coding Plan (K3/K2.7, clave de kimi.com/code/console)",
 	"hint.connect.kimiapi":        "Moonshot Platform pago por token (moonshot-v1/kimi-latest, clave de platform.moonshot.ai)",
-	"hint.connect.zaiapi":         "Z.ai open platform, pago por tokens — la misma clave que la suscripción, sin restricciones de herramientas",
+	"hint.connect.zaiapi":         "Z.ai open platform, pago por tokens — la misma clave que la suscripción",
 	"hint.connect.anthropic":      "conectar Anthropic API (sk-ant-... de console.anthropic.com)",
 	"hint.connect.openai":         "OpenAI Platform pago por token (sk-… de platform.openai.com)",
 	"hint.connect.openrouter":     "OpenRouter pago por token: Claude, GPT, Gemini, DeepSeek con una sola clave",

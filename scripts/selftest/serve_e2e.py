@@ -85,6 +85,11 @@ class Platform(BaseHTTPRequestHandler):
         if self.path.startswith("/agents-vbai/workspaces/bindings"):
             self._send({"bindings": [{"workspace_id": "ws-1", "local_path": WS}]})
             return
+        if self.path.startswith("/billing-vbai/my_plan"):
+            # E100: the plan is refreshed at start; tasks on own keys do not need it.
+            self._send({"user_id": "u-1", "tariff_code": "week_work", "state": "active",
+                        "valid_until": "2099-01-01T00:00:00Z", "is_accessible": True})
+            return
         if self.path.startswith("/billing-vbai/models_public"):
             # Каталог моделей платформы. Без него ход обрывается ещё до
             # обращения к провайдеру — и это выглядит как «задача выполнена»

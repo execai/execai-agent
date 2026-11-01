@@ -17,7 +17,7 @@ execai R6.78 · openai/gpt-5 · it@execai.ru · ~
 
 ![demo](scripts/demo.gif)
 
-> **ℹ Аккаунт ExecAI опционален.** Дефолтный источник `execai` использует наш бэкенд (регистрация на [execai.ru](https://execai.ru)), но CLI полностью работает **без входа в ExecAI**: подключи свою подписку прямо с логин-экрана — `/connect kimi <key>`, `/connect zai <key>`, `/connect openai <key>`, `/connect anthropic <key>` или локальные `claude-cli` / `codex-cli` / `ollama` — затем `/source <provider>` и работай.
+> **ℹ Аккаунт и план ExecAI нужны только для моделей ExecAI** (источник `execai`; любой план, первые 3 дня за 1 ₽) — а позже для синка и веб-пульта на планах «Работа» и «Макс». Свои ключи провайдеров (`/connect zai|kimi|openai|anthropic|openrouter|custom <key>`, локальные `claude-cli` / `codex-cli`) и локальные модели (`/source ollama`) работают без аккаунта; ключи не покидают вашу машину. Оформить план: [execai.ru](https://execai.ru).
 
 **Ink-style рендеринг** (по умолчанию, R5.107+): история сообщений уходит в терминальный scrollback (native selection работает, не сбрасывается при обновлениях). Live-стрим и input — в динамической области внизу. Как Claude Code.
 
@@ -200,7 +200,7 @@ Read-only вещи (`ls`, `cat`, `git status`, `kubectl get`, `grep`) выпол
 |---|---|---|
 | **execai** (дефолт) | Наш gateway → любой из ~34 моделей | Тариф ExecAI |
 | **zai** | Z.ai GLM Coding Plan напрямую | Твоя подписка Z.ai |
-| **zai-api** | Z.ai open platform, оплата за токены — **ключ тот же, что у подписки**, но, в отличие от Coding Plan, без ограничений по списку инструментов | Оплата за токены Z.ai |
+| **zai-api** | Z.ai open platform, оплата за токены — **ключ тот же, что у подписки** | Оплата за токены Z.ai |
 | **kimi** | Kimi Code Coding Plan (kimi.com/code) | Твоя подписка Kimi Code |
 | **kimi-api** | Moonshot Platform pay-per-token | Pay-per-token Moonshot |
 | **anthropic** | Прямой Claude API (sk-ant-...) | Pay-per-token Anthropic |
@@ -211,7 +211,9 @@ Read-only вещи (`ls`, `cat`, `git status`, `kubectl get`, `grep`) выпол
 | **ollama** | Cloud (ollama.com) или local (`ollama serve`) | Твоя подписка / 0 ₽ локально |
 | **custom** | Свой адрес: любой OpenAI- или Anthropic-совместимый сервер — LM Studio, vLLM, llama.cpp, LiteLLM, DeepSeek, Groq, корпоративный шлюз… | Как тарифицирует этот сервер |
 
-> **Бета:** сам агент на время беты бесплатен — подключайте свои ключи и подписки без оплаты. После беты для работы со своими источниками понадобится активная подписка ExecAI; модели через источник `execai` списываются по вашему плану ExecAI, как и сейчас.
+### План и гейт
+
+План ExecAI нужен только для моделей ExecAI (источник `execai`): перед каждым вызовом такой модели — ход в чате, `/compact`, `execai run`, задача `execai serve`, ход в панели редактора — агент проверяет план (`GET /billing-vbai/my_plan`). Без плана или без входа модель не вызывается, агент показывает, где [оформить](https://chat.execai.ru/settings/payment) план. Подходит любой план, первые 3 дня — 1 ₽; один баланс «Гибкий» планом не считается. Все свои источники — zai, zai-api, kimi, kimi-api, openai, anthropic, openrouter, claude-cli, codex-cli, свой провайдер, Ollama (локальный и облачный) — работают без плана и без входа, ход на них проверку плана не ждёт. `/plan` (или `execai plan`) показывает состояние плана; ответ хранится в `plan.json`. Биллинг спрашивается, только пока активен источник `execai` (при запуске, раз в сутки, после 402, при переключении на `execai` и по `/plan`); на своих ключах — никогда. Без связи с биллингом сохранённый ответ действует до 7 дней. `execai run` и простой REPL идут через активный источник, как и чат.
 
 ### 1. ExecAI — дефолт
 

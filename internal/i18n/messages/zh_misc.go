@@ -218,7 +218,7 @@ var zhMiscMessages = map[string]string{
 	"memory.status":             "记忆：%d 条，位于 %s",
 	"memory.foundNearby":        "在此目录发现其他智能体的记忆文件：%d 个",
 	"memory.importHint":         "\n导入它们：/memory import",
-	"memory.nothingToImport":    "在 %s 未发现其他智能体的记忆。\n已查找：CLAUDE.md、.claude/、AGENTS.md、.cursorrules、.cursor/rules/、.github/copilot-instructions.md、EXECAI.md",
+	"memory.nothingToImport":    "在 %s 未发现其他智能体的记忆。\n已查找：CLAUDE.md、CLAUDE.local.md、.claude/、AGENTS.md、.cursorrules、.cursor/rules/、.github/copilot-instructions.md、.github/instructions/、.windsurfrules、.windsurf/rules/、GEMINI.md、EXECAI.md、~/.claude/CLAUDE.md、~/.codex/AGENTS.md、~/.gemini/GEMINI.md、~/.codeium/windsurf/memories/global_rules.md",
 	"memory.importQuestion":     "要将 %d 个文件导入智能体记忆吗？",
 	"memory.importYes":          "导入",
 	"memory.importYesDesc":      "内容将成为记忆的一部分，而记忆之后会同步到服务器（用你的密钥加密）",

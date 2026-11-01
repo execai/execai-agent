@@ -102,16 +102,12 @@ const (
 	// SourceZAI = Z.ai GLM Coding Plan subscription (z.ai/subscribe).
 	// Endpoint: api.z.ai/api/anthropic — Anthropic-compat only.
 	//
-	// ⚠️ Their usage policy limits the Coding Plan to a closed list of tools
-	// (Claude Code, Cursor, Cline, Roo Code, OpenCode, Pi, Crush, Goose…) and
-	// execai is not on it: "users may not use their subscription benefits for
-	// tools or scenarios outside of this scope", enforcement up to a ban after
-	// three violations. Hence the warning on /connect zai and SourceZAIAPI below
-	// as the unrestricted path.
+	// Z.ai has allowed using the Coding Plan in this agent; the one condition
+	// is not to present the agent as Claude Code (it identifies itself by its
+	// own User-Agent). /connect zai prints that note.
 	SourceZAI = "zai"
 	// SourceZAIAPI = Z.ai open platform, pay-per-token (api.z.ai/api/paas/v4).
-	// OpenAI-compatible, NOT limited by the Coding Plan tool list — this is the
-	// legitimate way to use GLM models from a self-built agent.
+	// OpenAI-compatible, billed per token separately from the Coding Plan.
 	SourceZAIAPI = "zai-api"
 	// SourceOpenAI = OpenAI Platform pay-per-token API key (platform.openai.com).
 	// Endpoint: api.openai.com/v1. Models: gpt-4o, o3, o4-mini and others.

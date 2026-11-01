@@ -66,7 +66,7 @@ var zhMessages = map[string]string{
 	"hint.connect.zai":            "连接 Z.ai GLM Coding Plan（需要 api-key）",
 	"hint.connect.kimi":           "Kimi Code Coding Plan（K3/K2.7，密钥来自 kimi.com/code/console）",
 	"hint.connect.kimiapi":        "Moonshot Platform 按 token 计费（moonshot-v1/kimi-latest，密钥来自 platform.moonshot.ai）",
-	"hint.connect.zaiapi":         "Z.ai 开放平台，按量计费 —— 与订阅同一把密钥，不限制工具",
+	"hint.connect.zaiapi":         "Z.ai 开放平台，按量计费 —— 与订阅同一把密钥",
 	"hint.connect.anthropic":      "连接 Anthropic API（sk-ant-...，来自 console.anthropic.com）",
 	"hint.connect.openai":         "OpenAI Platform 按 token 计费（sk-…，来自 platform.openai.com）",
 	"hint.connect.openrouter":     "OpenRouter 按量计费：一个密钥用 Claude、GPT、Gemini、DeepSeek",

@@ -17,7 +17,7 @@ Type a task. /model — models, /help — commands, /quit — exit.
 
 ![demo](scripts/demo.gif)
 
-> **ℹ An ExecAI account is optional.** The default `execai` source uses our backend (sign-up at [execai.ru](https://execai.ru)), but the CLI works fully **without any ExecAI login**: connect your own subscription right from the login screen — `/connect kimi <key>`, `/connect zai <key>`, `/connect openai <key>`, `/connect anthropic <key>`, or local `claude-cli` / `codex-cli` / `ollama` — then `/source <provider>` and start working.
+> **ℹ An ExecAI account and plan are needed only for the ExecAI models** (the `execai` source; any plan, the first 3 days cost 1 ₽) — and later for sync and the web console on the Work and Max plans. Your own provider keys (`/connect zai|kimi|openai|anthropic|openrouter|custom <key>`, local `claude-cli` / `codex-cli`) and local models (`/source ollama`) work without an account; the keys never leave your machine. Details in [Plan & gate](#plan--gate).
 
 **Ink-style rendering** (default since R5.107): message history is committed to the terminal scrollback (native selection works and doesn't get reset on updates). Live streaming and input live in a dynamic area at the bottom. Just like Claude Code.
 
@@ -194,13 +194,13 @@ Navigation: ← → or Tab to move focus, Enter to confirm, or the shortcuts `y/
 
 ## Sources — ExecAI and subscriptions
 
-The agent can talk to **12 different sources**. The conversation history is shared — switch on the fly, don't lose context.
+The agent can talk to **12 different sources**. The conversation history is shared — switch on the fly, don't lose context. Only the `execai` source needs an ExecAI plan (see [Plan & gate](#plan--gate)); every other source works with your own key or login and without an ExecAI account — the provider bills the tokens, not us.
 
 | Source | What it is | Billing |
 |---|---|---|
 | **execai** (default) | Our gateway → any of ~34 models | ExecAI plan |
 | **zai** | Z.ai GLM Coding Plan direct | Your Z.ai subscription |
-| **zai-api** | Z.ai open platform, pay-per-token — **same key as the subscription**, and unlike the Coding Plan it is not limited to a list of approved tools | Pay-per-token Z.ai |
+| **zai-api** | Z.ai open platform, pay-per-token — **same key as the subscription** | Pay-per-token Z.ai |
 | **kimi** | Kimi Code Coding Plan (kimi.com/code) | Your Kimi Code subscription |
 | **kimi-api** | Moonshot Platform pay-per-token | Pay-per-token Moonshot |
 | **anthropic** | Direct Claude API (sk-ant-...) | Pay-per-token Anthropic |
@@ -211,7 +211,13 @@ The agent can talk to **12 different sources**. The conversation history is shar
 | **ollama** | Cloud (ollama.com) or local (`ollama serve`) | Your subscription / 0 ₽ locally |
 | **custom** | Your own endpoint: any OpenAI- or Anthropic-compatible address — LM Studio, vLLM, llama.cpp, LiteLLM, DeepSeek, Groq, a corporate gateway… | Whatever that endpoint bills |
 
-> **Beta:** the agent itself is free while it is in beta — connect your own keys and subscriptions at no charge. After the beta, using your own sources will require an active ExecAI subscription; models via the `execai` source are billed by your ExecAI plan as before.
+### Plan & gate
+
+An ExecAI plan unlocks the ExecAI models (the `execai` source) — and, on the Work and Max plans, sync and the web console once they ship. Before every call to an ExecAI model — a chat turn, `/compact`, `execai run`, a task in `execai serve`, a turn in the editor panel — the agent checks your plan (`GET /billing-vbai/my_plan` with your login token). Any plan works: the Start, Work or Max weekly plans, the monthly plan, or the 3-day trial for 1 ₽; a pay-as-you-go balance alone is not a plan. Without a plan, or without signing in, the agent does not call the model and shows where to [subscribe](https://chat.execai.ru/settings/payment) instead.
+
+Your own sources — zai, zai-api, kimi, kimi-api, openai, anthropic, openrouter, claude-cli, codex-cli, a custom endpoint, Ollama (local or cloud) — need neither a plan nor an ExecAI login, and their turns never wait for a plan check.
+
+`/plan` (or `execai plan`) shows the state, the plan, when it ends, when it was last checked and what is allowed. The answer is cached in `plan.json`. Billing is asked only while the ExecAI models are the active source — at launch, once a day, after a 402, on a switch to `execai` and on `/plan`; on your own keys it is not asked at all. When billing is unreachable, the saved answer is trusted for up to 7 days. `execai run` and the plain REPL follow the active source just like the chat.
 
 ### 1. ExecAI — default
 
@@ -223,7 +229,7 @@ src : ExecAI   provider : anthropic   model : claude-sonnet-4-6
 
 ### 2. Z.ai Coding Plan
 
-Your own $3-60/mo subscription → you hit GLM-5.2 directly, we don't charge anything.
+Your own $3-60/mo subscription → you hit GLM-5.2 directly, we don't charge for the tokens. Z.ai allows its plan in this agent; just don't present the agent as Claude Code.
 
 1. Grab a **Coding Plan** key (not a regular API-key!):
    - https://z.ai/manage-apikey/apikey-list → **Individual Coding Plan > Plan Overview**
@@ -335,7 +341,7 @@ ollama pull llama3.2               # externally, whatever you want to run
 /connect ollama local http://192.168.1.10:11434   # your own URL
 /source ollama
 ```
-The catalog is pulled dynamically via `/api/tags`. 0 ₽. OpenAI-compatible endpoint.
+The catalog is pulled dynamically via `/api/tags`. 0 ₽; like every own source, it needs no ExecAI plan or login. OpenAI-compatible endpoint.
 
 ### 10. Custom provider — any OpenAI- or Anthropic-compatible endpoint
 
@@ -511,6 +517,20 @@ The same agent runs inside the [VS Code / Cursor extension](https://marketplace.
 
 ---
 
+## Migrating from another agent
+
+Coming from Claude Code, Cursor, Codex CLI, Windsurf, Gemini CLI or GitHub Copilot? execai picks up the instructions you already wrote for them — `CLAUDE.md`, `.cursorrules`, `.cursor/rules/`, `AGENTS.md`, `.windsurfrules`, `GEMINI.md`, `.github/copilot-instructions.md`, plus the user-level ones (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`…) — and copies them into [its memory](#agent-memory). The originals are not changed.
+
+- On first start in such a project the agent lists what it found and asks **once** (remembered per directory).
+- In the chat: `/memory import`.
+- From a shell or CI: `execai import --dry-run` shows what goes where without writing anything; `--from claude|cursor|codex|windsurf|gemini|copilot|all` narrows it down.
+
+Not carried over: provider keys (connect again with `/connect`), permissions, MCP servers (not supported yet). Files with anything that looks like a key or password are skipped.
+
+Guide: [Russian](docs/ru/migrate.md) · [English](docs/en/migrate.md)
+
+---
+
 ## Agent memory
 
 The agent remembers facts across sessions — like Claude Code, but simpler. It's automatically loaded into the system prompt (only the index, not everything at once) — the context stays lightweight.
@@ -664,6 +684,7 @@ Shows different things depending on the active `/source`:
 | `/disconnect <provider>` | Disconnect a subscription |
 | `/subscriptions` (or `/subs`) | List connections |
 | `/usage` | Plan + spend (per-source specifics) |
+| `/plan` | ExecAI plan: state, valid until, what is allowed (also `execai plan`) |
 | `/effort` | Reasoning-level picker (for Anthropic-compat sources) |
 | `/max-iterations [N]` | Limit on tool-use iterations per turn. No arg shows current (default 40). On exhaustion — a soft stop |
 | `/paste` | List of pastes (Ctrl+V of big chunks) — [Pasted #N — L lines, C chars] |
@@ -741,6 +762,7 @@ Input history (`↑/↓`) is also saved to `~/.config/execai/input_history` — 
 | `credentials.json` | JWT (mode 0600) |
 | `host_id` | Stable machine-id (only if /etc/machine-id etc. aren't available — fallback) |
 | `subscriptions.json` | Connected subscriptions (keys in plaintext — store safely) |
+| `plan.json` | Last answer about your ExecAI plan (mode 0600) — see [Plan & gate](#plan--gate) |
 | `permissions.json` | Persistent tool allow-list |
 | `sessions/<uuid>.json` | Each conversation's history |
 | `memory/MEMORY.md` | User memory index (see [Memory](#agent-memory)) |
@@ -763,6 +785,11 @@ Input history (`↑/↓`) is also saved to `~/.config/execai/input_history` — 
 **`execai: command not found`** after install:
 - In the current session: `exec bash -l` or open a new terminal
 - Or manually: `export PATH="$HOME/.local/bin:$PATH"`
+
+**"ExecAI models come with a plan"** instead of an answer:
+- The `execai` source needs a plan: pick any at https://chat.execai.ru/settings/payment (the first 3 days cost 1 ₽), then send the message again — the agent re-checks right away.
+- Or use your own source — no plan or login needed: `/connect zai|kimi|openai|anthropic|openrouter|custom <key>` then `/source <name>`, or `/source ollama`.
+- `/plan` shows what the agent knows. Not signed in — run `execai` and confirm in the browser (in chat: `/login`).
 
 **"zai subscription is not connected"** on `/source zai`:
 - First `/connect zai <key>`. Where to get the key — see the [Sources](#sources--execai-and-subscriptions) section

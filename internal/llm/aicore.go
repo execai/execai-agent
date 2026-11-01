@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/velesbsdllc/agent-vbai/internal/version"
 	"io"
@@ -101,6 +102,17 @@ type AICoreClient struct {
 	Provider string
 	HTTP     *http.Client
 }
+
+// ErrPaymentRequired marks a 402 from the ExecAI backend: the plan has ended
+// or the allowance is spent. Callers re-check the plan (internal/plan) on it.
+var ErrPaymentRequired = errors.New("payment required")
+
+// paymentRequiredError keeps the original message and matches
+// ErrPaymentRequired via errors.Is.
+type paymentRequiredError struct{ err error }
+
+func (e *paymentRequiredError) Error() string { return e.err.Error() }
+func (e *paymentRequiredError) Unwrap() error { return ErrPaymentRequired }
 
 func NewAICoreClient(apiBase, token, model, provider string) *AICoreClient {
 	return &AICoreClient{
@@ -238,7 +250,11 @@ func (c *AICoreClient) Stream(ctx context.Context, messages []AIMessage, tools [
 	}
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ответ %d: %s", resp.StatusCode, truncateStr(string(raw), 600))
+		err := fmt.Errorf("ответ %d: %s", resp.StatusCode, truncateStr(string(raw), 600))
+		if resp.StatusCode == http.StatusPaymentRequired {
+			return nil, &paymentRequiredError{err: err}
+		}
+		return nil, err
 	}
 
 	res, err := readAICoreSSE(resp.Body, cb)

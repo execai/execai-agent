@@ -71,12 +71,14 @@ func main() {
 		newLoginCmd(),
 		newLogoutCmd(),
 		newWhoamiCmd(),
+		newPlanCmd(),
 		newChatCmd(),
 		newRunCmd(),
 		newServeCmd(),
 		newIDECmd(),
 		newConfigCmd(),
 		newVersionCmd(),
+		newImportCmd(),
 	)
 
 	if err := root.ExecuteContext(ctx); err != nil {

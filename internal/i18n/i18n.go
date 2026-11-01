@@ -155,3 +155,16 @@ func sortLocales(s []string) {
 		}
 	}
 }
+
+// Setup picks the locale for a process without the TUI (serve, ide, run,
+// plan): the configured one, else $LC_ALL / $LC_MESSAGES / $LANG, else the
+// default. Returns the locale in effect.
+func Setup(configured string) string {
+	if configured != "" {
+		return SetLocale(configured)
+	}
+	if d := Detect(); d != "" {
+		return SetLocale(d)
+	}
+	return SetLocale(DefaultLocale)
+}

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +15,10 @@ import (
 
 	"github.com/velesbsdllc/agent-vbai/internal/agent"
 	"github.com/velesbsdllc/agent-vbai/internal/config"
+	_ "github.com/velesbsdllc/agent-vbai/internal/i18n/messages"
 	"github.com/velesbsdllc/agent-vbai/internal/llm"
+	"github.com/velesbsdllc/agent-vbai/internal/plan"
+	"github.com/velesbsdllc/agent-vbai/internal/tools"
 )
 
 // Ответ из редактора обязан значить РОВНО то же, что кнопка TUI и веб-чата:
@@ -284,5 +289,59 @@ func TestMaybeAutoCompact_IDE(t *testing.T) {
 	deps.autoCompactPct = 0
 	if got := c.maybeAutoCompact(context.Background(), hist, deps, 999_999); len(got) != len(hist) {
 		t.Error("автосжатие выключено, но сработало")
+	}
+}
+
+type countingLLM struct{ calls int }
+
+func (f *countingLLM) Stream(_ context.Context, _ []llm.AIMessage, _ []map[string]any,
+	_ llm.StreamCallbacks) (*llm.StreamResult, error) {
+	f.calls++
+	return &llm.StreamResult{Content: "ok"}, nil
+}
+
+// No plan, ExecAI source: the panel's turn ends with the gate's text, the
+// model is not called.
+func TestRunTurn_PlanGateRefuses(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	billing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"user_id":"u","subscription":null,"is_accessible":false}`))
+	}))
+	defer billing.Close()
+	buf := &bytes.Buffer{}
+	srv := newServer(json.NewEncoder(buf), "")
+	c := srv.newChat("m", "p")
+	model := &countingLLM{}
+	deps := turnDeps{cli: model, maxIter: 3, registry: tools.ReadOnly(dir),
+		gate: plan.NewChecker(billing.URL, "", func() string { return "tok" })}
+	ctx, cancel := context.WithCancel(context.Background())
+	c.runTurn(ctx, cancel, In{Text: "hi"}, deps, nil)
+	out := buf.String()
+	if model.calls != 0 {
+		t.Errorf("model called %d times despite the gate", model.calls)
+	}
+	var errText string
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		var o Out
+		if json.Unmarshal([]byte(line), &o) == nil && o.Type == "error" {
+			errText = o.Text
+		}
+	}
+	if !strings.Contains(errText, plan.SubscribeURL) || !strings.Contains(errText, "/source ollama") ||
+		!strings.Contains(out, `"done"`) {
+		t.Errorf("gate text not delivered to the panel: %s", out)
+	}
+
+	// The same turn on an own source goes through to the model — without a
+	// plan and even without a login.
+	buf.Reset()
+	deps.planRoute = plan.Route{Own: true}
+	deps.gate = plan.NewChecker(billing.URL, "", func() string { return "" })
+	ctx, cancel = context.WithCancel(context.Background())
+	c.runTurn(ctx, cancel, In{Text: "hi"}, deps, nil)
+	if model.calls == 0 {
+		t.Errorf("own-source turn did not reach the model: %s", buf.String())
 	}
 }

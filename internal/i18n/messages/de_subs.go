@@ -147,15 +147,9 @@ var deSubsMessages = map[string]string{
 		"null: das Abo wird getrennt von der offenen Plattform abgerechnet.\n" +
 		"\n" +
 		"Aufladen unter https://z.ai/manage-apikey/apikey-list, oder beim Abo\n" +
-		"über /connect zai bleiben (siehe Hinweis zu dessen Bedingungen).",
-	"subs.connect.zaiToSWarning": "⚠ Zu den Bedingungen des GLM Coding Plan.\n" +
-		"Z.ai beschränkt das Abo auf eine geschlossene Liste von Tools (Claude Code, Cursor,\n" +
-		"Cline, Roo Code, OpenCode, Pi, Crush, Goose und einige mehr) — execai steht nicht darauf.\n" +
-		"Ihre Richtlinie erlaubt Rate-Limiting, das Einfrieren des Kontos und eine Sperre nach\n" +
-		"drei Verstößen. Es ist DEIN Konto, nicht unseres — entscheide selbst.\n" +
-		"\n" +
-		"Alternative ohne Beschränkung — Z.ai open platform, Abrechnung pro Token:\n" +
-		"  /connect zai-api <key>   — dieselben GLM-Modelle, keine Tool-Liste.",
+		"über /connect zai bleiben.",
+	"subs.connect.zaiToSWarning": "ℹ Z.ai erlaubt die Nutzung des GLM Coding Plan mit diesem Agenten. Der Agent meldet sich\n" +
+		"unter eigenem Namen — gib ihn bitte nicht als Claude Code aus.",
 	"subs.connect.zaiKeyReused":       "der Coding-Plan-Schlüssel wird wiederverwendet, es ist derselbe",
 	"subs.connect.openrouterRejected": "✗ Key von openrouter.ai abgelehnt (HTTP %d).\n  Du brauchst einen sk-or-… Key von https://openrouter.ai/keys.",
 }

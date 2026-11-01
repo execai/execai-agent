@@ -17,7 +17,7 @@ Type a task. /model — models, /help — commands, /quit — exit.
 
 ![demo](scripts/demo.gif)
 
-> **ℹ ExecAI 账号是可选的。** 默认源 `execai` 使用我们的后端（在 [execai.ru](https://execai.ru) 注册），但 CLI 完全可以**无需登录 ExecAI** 使用：直接在登录界面连接你自己的订阅 — `/connect kimi <key>`、`/connect zai <key>`、`/connect openai <key>`、`/connect anthropic <key>`，或本地 `claude-cli` / `codex-cli` / `ollama` — 然后 `/source <provider>` 开始工作。
+> **ℹ 只有 ExecAI 模型需要 ExecAI 账号和套餐**（`execai` 源；任意套餐，前 3 天 1 ₽）——以后 Work 和 Max 套餐还将提供同步和网页控制台。你自己的提供商密钥（`/connect zai|kimi|openai|anthropic|openrouter|custom <key>`、本地 `claude-cli` / `codex-cli`）和本地模型（`/source ollama`）无需账号即可使用；密钥永远不会离开你的机器。开通套餐：[execai.ru](https://execai.ru)。
 
 **Ink-style 渲染**（自 R5.107 起默认开启）：消息历史直接写入终端 scrollback（原生文本选择可用，且不会在更新时被清空）。流式输出和输入区域位于底部的动态区域。就像 Claude Code 一样。
 
@@ -196,7 +196,7 @@ Agent 可以对接 **12 个不同的来源**。会话历史是共享的 — 随�
 |---|---|---|
 | **execai**（默认） | 我们的网关 → 约 34 个模型任选 | ExecAI 套餐 |
 | **zai** | 直连 Z.ai GLM Coding Plan | 你的 Z.ai 订阅 |
-| **zai-api** | Z.ai 开放平台，按量计费 —— **与订阅同一把密钥**，且不受 Coding Plan 的工具清单限制 | Z.ai 按量计费 |
+| **zai-api** | Z.ai 开放平台，按量计费 —— **与订阅同一把密钥** | Z.ai 按量计费 |
 | **kimi** | Kimi Code Coding Plan（kimi.com/code） | 你的 Kimi Code 订阅 |
 | **kimi-api** | Moonshot Platform 按 token 付费 | Moonshot 按 token 付费 |
 | **anthropic** | 直连 Claude API（sk-ant-...） | Anthropic 按 token 付费 |
@@ -207,7 +207,9 @@ Agent 可以对接 **12 个不同的来源**。会话历史是共享的 — 随�
 | **ollama** | 云端（ollama.com）或本地（`ollama serve`） | 你的订阅 / 本地 0 ₽ |
 | **custom** | 你自己的地址：任意 OpenAI 或 Anthropic 兼容服务器 — LM Studio、vLLM、llama.cpp、LiteLLM、DeepSeek、Groq、公司网关…… | 按该服务器的计费方式 |
 
-> **测试版：** 测试期间代理本身免费——可免费接入你自己的密钥和订阅。测试期结束后，使用自己的源需要有效的 ExecAI 订阅；通过 `execai` 源使用的模型仍按你的 ExecAI 套餐计费。
+### 套餐与门控
+
+只有 ExecAI 模型（`execai` 源）需要 ExecAI 套餐：每次调用这类模型之前——聊天中的一轮、`/compact`、`execai run`、`execai serve` 中的任务、编辑器面板中的一轮——代理都会检查套餐（`GET /billing-vbai/my_plan`）。没有套餐或未登录时，代理不会调用模型，而是提示在哪里[开通套餐](https://chat.execai.ru/settings/payment)。任意套餐均可，前 3 天 1 ₽；仅有按量余额不算套餐。你自己的所有源——zai、zai-api、kimi、kimi-api、openai、anthropic、openrouter、claude-cli、codex-cli、自定义提供商、Ollama（本地和云端）——无需套餐、无需登录。`/plan`（或 `execai plan`）显示套餐状态；结果保存在 `plan.json` 中。只有当 ExecAI 模型是当前源时才会查询计费服务（启动时、每天、收到 402 后、切换到 `execai` 时以及执行 `/plan` 时）；使用你自己的密钥时从不查询。无法连接计费服务时，保存的结果最多沿用 7 天。`execai run` 和简单 REPL 与聊天一样使用当前源。
 
 ### 1. ExecAI — 默认
 

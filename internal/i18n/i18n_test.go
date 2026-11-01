@@ -100,3 +100,20 @@ func TestAvailable_Sorted(t *testing.T) {
 		t.Errorf("first locale should be en, got %q", avail[0])
 	}
 }
+
+func TestSetup(t *testing.T) {
+	defer i18n.SetLocale("en")
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_MESSAGES", "")
+	t.Setenv("LANG", "ru_RU.UTF-8")
+	if got := i18n.Setup(""); got != "ru" {
+		t.Errorf("Setup from $LANG = %q, want ru", got)
+	}
+	if got := i18n.Setup("de"); got != "de" {
+		t.Errorf("configured locale must win, got %q", got)
+	}
+	t.Setenv("LANG", "")
+	if got := i18n.Setup(""); got != "en" {
+		t.Errorf("nothing set = %q, want en", got)
+	}
+}

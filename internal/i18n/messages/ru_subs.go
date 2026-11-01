@@ -148,15 +148,9 @@ var ruSubsMessages = map[string]string{
 		"pay-per-token: подписка биллится отдельно от открытой платформы.\n" +
 		"\n" +
 		"Пополнить: https://z.ai/manage-apikey/apikey-list — либо остаться на\n" +
-		"подписке через /connect zai (см. оговорку про её условия).",
-	"subs.connect.zaiToSWarning": "⚠ Про условия GLM Coding Plan.\n" +
-		"Z.ai ограничивает подписку закрытым списком инструментов (Claude Code, Cursor,\n" +
-		"Cline, Roo Code, OpenCode, Pi, Crush, Goose и ещё несколько) — execai в него не входит.\n" +
-		"Их правила допускают троттлинг, заморозку аккаунта и бан после трёх нарушений.\n" +
-		"Рискует ТВОЙ аккаунт, не наш — решай сам.\n" +
-		"\n" +
-		"Альтернатива без ограничений — Z.ai open platform, оплата за токены:\n" +
-		"  /connect zai-api <ключ>   — те же модели GLM, никакого списка инструментов.",
+		"подписке через /connect zai.",
+	"subs.connect.zaiToSWarning": "ℹ Z.ai разрешил использовать GLM Coding Plan в этом агенте. Агент представляется\n" +
+		"своим именем — не выдавайте его за Claude Code.",
 	"subs.connect.zaiKeyReused":       "переиспользован ключ подписки, он тот же самый",
 	"subs.connect.openrouterRejected": "✗ ключ отвергнут openrouter.ai (HTTP %d).\n  Нужен ключ вида sk-or-… из https://openrouter.ai/keys.",
 }

@@ -31,6 +31,7 @@ import (
 	"github.com/velesbsdllc/agent-vbai/internal/config"
 	"github.com/velesbsdllc/agent-vbai/internal/i18n"
 	"github.com/velesbsdllc/agent-vbai/internal/llm"
+	"github.com/velesbsdllc/agent-vbai/internal/plan"
 	"github.com/velesbsdllc/agent-vbai/internal/security"
 	"github.com/velesbsdllc/agent-vbai/internal/sessions"
 	"github.com/velesbsdllc/agent-vbai/internal/subscriptions"
@@ -216,6 +217,11 @@ type tuiModel struct {
 	loopActive   bool
 	loopInterval time.Duration
 	loopPrompt   string
+
+	// Subscription gate (plan_command.go): every turn asks it before the
+	// model is called. planWarned — the refusal was already shown once.
+	plan       *plan.Checker
+	planWarned bool
 }
 
 // loopTickMsg — tick event for /loop.
@@ -326,6 +332,7 @@ func RunTUI(_ context.Context, cfg *config.Config, ver string) error {
 		cwd:          short,
 		inputHistory: loadInputHistory(),
 		subs:         subs,
+		plan:         plan.New(cfg.APIBase),
 	}
 	// Let tools report the active session to the backend: WebSearch passes it as
 	// conversation_id so the search spend is attributed to this CLI session and
@@ -359,7 +366,8 @@ func RunTUI(_ context.Context, cfg *config.Config, ver string) error {
 	tools.SetSubagentRunner(m.runSubagent)
 	// No-login boot: not logged in to ExecAI, but an external subscription is
 	// active (kimi/zai/openai/…) — skip the login screen entirely and start
-	// the chat on that subscription. The ExecAI account is optional.
+	// the chat on that subscription. Own sources need neither a login nor an
+	// ExecAI plan; only a switch to the ExecAI models meets the sign-in hint.
 	if loginMode && subs != nil && subs.ActiveSubscription() != nil {
 		loginMode = false
 		m.loginMode = false
@@ -392,6 +400,10 @@ func RunTUI(_ context.Context, cfg *config.Config, ver string) error {
 				m.uiSegments = append(m.uiSegments, segment{kind: "system_hint", body: wMsg})
 			}
 		}
+	}
+	// Coming from another agent: offer its instructions once per project.
+	if !m.loginMode {
+		m.maybeOfferImport()
 	}
 	m.refreshViewport()
 
@@ -433,6 +445,10 @@ func (m *tuiModel) Init() tea.Cmd {
 	}
 	// Auto-update check on startup (async, in the background).
 	cmds = append(cmds, m.checkForUpdateCmd())
+	// Plan: the cache answers at once; billing is re-asked in the background
+	// and then daily, but only while the ExecAI models are the active source
+	// (plan_command.go).
+	cmds = append(cmds, m.planRefreshCmd(true))
 	return tea.Batch(cmds...)
 }
 
@@ -457,6 +473,9 @@ type autoStartLoginMsg struct{}
 // ===== Update =====
 
 func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if cmd, ok := m.updatePlan(msg); ok {
+		return m, cmd
+	}
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
@@ -1119,6 +1138,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agentErrMsg:
 		m.streaming = false
+		planCmd := m.planAfterError(msg.err)
 		if msg.err == context.Canceled {
 			m.statusMessage = i18n.T("stream.aborted")
 		} else {
@@ -1159,7 +1179,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.streamBuf.Reset()
 		m.reasonBuf.Reset()
 		m.refreshViewport()
-		return m, nil
+		return m, planCmd
 	}
 
 	// Paste-collapse: intercept large Runes inputs (Ctrl+V), replace with
@@ -1306,6 +1326,7 @@ var allCommands = []suggestItem{
 	{insert: "/help", label: "/help", hint: "hint.help"},
 	{insert: "/model ", label: "/model", hint: "hint.model"},
 	{insert: "/usage", label: "/usage", hint: "hint.usage"},
+	{insert: "/plan", label: "/plan", hint: "hint.plan"},
 	{insert: "/compact", label: "/compact", hint: "hint.compact"},
 	{insert: "/autocompact ", label: "/autocompact", hint: "hint.autocompact"},
 	{insert: "/log", label: "/log", hint: "hint.log"},
@@ -1538,6 +1559,7 @@ func (m *tuiModel) finishLogin(cr *config.Credentials) (tea.Model, tea.Cmd) {
 	m.lastEmittedIdx = 0
 	m.uiSegments = append(m.uiSegments, segment{kind: "system_hint", body: greet})
 	m.statusMessage = ""
+	m.maybeOfferImport()
 	m.refreshViewport()
 	return m, nil
 }
@@ -1650,6 +1672,8 @@ func (m *tuiModel) handleCommand(line string) (tea.Model, tea.Cmd) {
 		}
 		m.err = i18n.T("ui.paste.usage")
 		return m, nil
+	case cmd == "/plan":
+		return m, m.planShowCmd()
 	case cmd == "/whoami":
 		if m.creds != nil {
 			m.statusMessage = m.creds.Email + " @ " + m.cfg.APIBase
@@ -1687,10 +1711,11 @@ func (m *tuiModel) handleCommand(line string) (tea.Model, tea.Cmd) {
 		strings.HasPrefix(cmd, "/connect ") || strings.HasPrefix(cmd, "/disconnect ") ||
 		strings.HasPrefix(cmd, "/source ") || strings.HasPrefix(cmd, "/use ") ||
 		strings.HasPrefix(cmd, "/provider "):
+		wasOwn := plan.RouteOf(m.subs).Own
 		_, msg := m.handleSubsCommand(cmd)
 		m.uiSegments = append(m.uiSegments, segment{kind: "system_hint", body: msg})
 		m.refreshViewport()
-		return m, nil
+		return m, m.planAfterSwitch(wasOwn)
 	case cmd == "/lang" || strings.HasPrefix(cmd, "/lang "):
 		// /lang         → show current + available
 		// /lang <code>  → set and save to config
@@ -2189,8 +2214,21 @@ func (m *tuiModel) startAgent(userMessage string) tea.Cmd {
 	a.MaxIterations = m.cfg.GetMaxIterations()
 
 	hist := append([]llm.AIMessage(nil), m.history...)
+	gate := m.planGate()
 
 	go func() {
+		// The gate runs here, not on the UI loop: re-asking billing may take
+		// seconds. A refusal replaces the turn — the model is not called.
+		if gate != nil {
+			if v := gate(ctx); !v.Allowed {
+				if ctx.Err() != nil {
+					prog.Send(agentErrMsg{err: context.Canceled})
+					return
+				}
+				prog.Send(planGateMsg{text: v.Message()})
+				return
+			}
+		}
 		out, err := a.Run(ctx, hist, userMessage)
 		if err != nil {
 			prog.Send(agentErrMsg{err: err})

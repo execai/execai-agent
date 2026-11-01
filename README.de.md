@@ -17,7 +17,7 @@ Type a task. /model — models, /help — commands, /quit — exit.
 
 ![demo](scripts/demo.gif)
 
-> **ℹ Ein ExecAI-Konto ist optional.** Die Standard-Source `execai` nutzt unser Backend (Registrierung auf [execai.ru](https://execai.ru)), aber die CLI funktioniert vollständig **ohne ExecAI-Login**: verbinde dein eigenes Abo direkt vom Login-Screen — `/connect kimi <key>`, `/connect zai <key>`, `/connect openai <key>`, `/connect anthropic <key>` oder lokal `claude-cli` / `codex-cli` / `ollama` — dann `/source <provider>` und loslegen.
+> **ℹ Ein ExecAI-Konto und -Plan sind nur für die ExecAI-Modelle nötig** (Quelle `execai`; jeder Plan, die ersten 3 Tage kosten 1 ₽) — und später für Sync und die Web-Konsole in den Plänen Work und Max. Eigene Anbieter-Schlüssel (`/connect zai|kimi|openai|anthropic|openrouter|custom <key>`, lokale `claude-cli` / `codex-cli`) und lokale Modelle (`/source ollama`) funktionieren ohne Konto; die Schlüssel verlassen deinen Rechner nie. Plan abschließen: [execai.ru](https://execai.ru).
 
 **Ink-style rendering** (Standard seit R5.107): der Message-History wird in den Terminal-Scrollback committet (native Textauswahl funktioniert und wird bei Updates nicht zurückgesetzt). Live-Streaming und Eingabe leben in einem dynamischen Bereich am unteren Rand. Genau wie Claude Code.
 
@@ -196,7 +196,7 @@ Der Agent kann mit **12 verschiedenen Quellen** reden. Der Conversation-History 
 |---|---|---|
 | **execai** (Standard) | Unser Gateway → eines von ~34 Modellen | ExecAI-Plan |
 | **zai** | Z.ai GLM Coding Plan direkt | Dein Z.ai-Abo |
-| **zai-api** | Z.ai open platform, Pay-per-Token — **derselbe Schlüssel wie beim Abo**, aber ohne die geschlossene Tool-Liste des Coding Plan | Pay-per-Token Z.ai |
+| **zai-api** | Z.ai open platform, Pay-per-Token — **derselbe Schlüssel wie beim Abo** | Pay-per-Token Z.ai |
 | **kimi** | Kimi Code Coding Plan (kimi.com/code) | Dein Kimi-Code-Abo |
 | **kimi-api** | Moonshot Platform pay-per-token | Pay-per-token Moonshot |
 | **anthropic** | Direkte Claude-API (sk-ant-...) | Pay-per-token Anthropic |
@@ -207,7 +207,9 @@ Der Agent kann mit **12 verschiedenen Quellen** reden. Der Conversation-History 
 | **ollama** | Cloud (ollama.com) oder lokal (`ollama serve`) | Dein Abo / 0 ₽ lokal |
 | **custom** | Eigene Adresse: jeder OpenAI- oder Anthropic-kompatible Server — LM Studio, vLLM, llama.cpp, LiteLLM, DeepSeek, Groq, ein Firmen-Gateway… | So, wie dieser Server abrechnet |
 
-> **Beta:** Der Agent selbst ist während der Beta kostenlos — eigene Schlüssel und Abonnements lassen sich ohne Aufpreis anbinden. Nach der Beta setzt die Nutzung eigener Quellen ein aktives ExecAI-Abonnement voraus; Modelle über die Quelle `execai` werden wie bisher über Ihren ExecAI-Plan abgerechnet.
+### Plan und Gate
+
+Ein ExecAI-Plan ist nur für die ExecAI-Modelle (Quelle `execai`) nötig: Vor jedem Aufruf eines solchen Modells — Chat-Zug, `/compact`, `execai run`, Aufgabe in `execai serve`, Zug im Editor-Panel — prüft der Agent den Plan (`GET /billing-vbai/my_plan`). Ohne Plan oder ohne Anmeldung wird das Modell nicht aufgerufen, und der Agent zeigt, wo man [einen Plan abschließt](https://chat.execai.ru/settings/payment). Jeder Plan zählt, die ersten 3 Tage kosten 1 ₽; ein reines Pay-as-you-go-Guthaben ist kein Plan. Alle eigenen Quellen — zai, zai-api, kimi, kimi-api, openai, anthropic, openrouter, claude-cli, codex-cli, eigener Anbieter, Ollama (lokal und Cloud) — funktionieren ohne Plan und ohne Anmeldung. `/plan` (oder `execai plan`) zeigt den Stand; die Antwort liegt in `plan.json`. Die Abrechnung wird nur gefragt, solange die ExecAI-Modelle die aktive Quelle sind (beim Start, täglich, nach einem 402, beim Wechsel zu `execai` und bei `/plan`), mit eigenen Schlüsseln nie; ohne Verbindung gilt die gespeicherte Antwort bis zu 7 Tage. `execai run` und der einfache REPL nutzen wie der Chat die aktive Quelle.
 
 ### 1. ExecAI — Standard
 

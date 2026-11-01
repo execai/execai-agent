@@ -5,6 +5,7 @@ package chat
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -16,13 +17,18 @@ import (
 	"github.com/velesbsdllc/agent-vbai/internal/config"
 	"github.com/velesbsdllc/agent-vbai/internal/i18n"
 	"github.com/velesbsdllc/agent-vbai/internal/llm"
+	"github.com/velesbsdllc/agent-vbai/internal/plan"
 )
 
 func RunPlain(ctx context.Context, cfg *config.Config) error {
-	cr, err := auth.Require()
+	i18n.Setup(cfg.Locale)
+	// The active source, as in the TUI: an own subscription works without a
+	// sign-in or a plan; the ExecAI models check the plan on every turn.
+	b, err := newPlainBackend(ctx, cfg, false)
 	if err != nil {
 		return err
 	}
+	models, current := b.models, b.current
 
 	// The REPL survives Ctrl+C: SIGINT during streaming cancels only the current
 	// request, the REPL keeps running. The parent ctx from main is canceled
@@ -32,18 +38,6 @@ func RunPlain(ctx context.Context, cfg *config.Config) error {
 	signal.Notify(sigCh, syscall.SIGINT)
 	defer signal.Stop(sigCh)
 
-	models, err := llm.FetchModels(ctx, cfg.APIBase, cr.Token)
-	if err != nil {
-		return fmt.Errorf("%s: %w", i18n.T("plain.err.fetchModels"), err)
-	}
-	if len(models) == 0 {
-		return fmt.Errorf("%s", i18n.T("plain.err.emptyModels"))
-	}
-
-	current := llm.PickDefault(models, cfg.SelectedModelID)
-	if current == nil {
-		return fmt.Errorf("%s", i18n.T("plain.err.pickModelEmpty"))
-	}
 	// If the config has no model or names a nonexistent one — update the
 	// config so the next launch starts with the same selection.
 	if cfg.SelectedModelID != current.ID {
@@ -51,9 +45,9 @@ func RunPlain(ctx context.Context, cfg *config.Config) error {
 		_ = config.Save(cfg)
 	}
 
-	cli := llm.New(cfg.APIBase, cr.Token, current.ID, current.Provider)
+	stream := b.open(current)
 
-	fmt.Printf("execai chat (plain) | %s | %s/%s | %s\n", cfg.APIBase, current.Provider, current.ID, cr.Email)
+	fmt.Printf("execai chat (plain) | %s | %s/%s | %s\n", b.where, current.Provider, current.ID, b.who)
 	fmt.Println(i18n.T("plain.commands"))
 
 	history := make([]llm.Message, 0, 32)
@@ -89,13 +83,20 @@ func RunPlain(ctx context.Context, cfg *config.Config) error {
 				fmt.Println(i18n.Tf("plain.modelNotFound", arg))
 				continue
 			}
-			current = next
+			current = *next
 			cfg.SelectedModelID = current.ID
 			_ = config.Save(cfg)
-			cli = llm.New(cfg.APIBase, cr.Token, current.ID, current.Provider)
+			stream = b.open(current)
 			fmt.Println(i18n.Tf("plain.modelSwitched",
 				current.Provider, current.ID, current.Name))
 			continue
+		}
+
+		if b.gate != nil {
+			if v := b.gate(ctx); !v.Allowed {
+				fmt.Fprintln(os.Stderr, v.Message())
+				continue
+			}
 		}
 
 		history = append(history, llm.Message{Role: llm.RoleUser, Content: line})
@@ -117,7 +118,7 @@ func RunPlain(ctx context.Context, cfg *config.Config) error {
 			}
 		}()
 
-		full, err := cli.Stream(reqCtx, history, func(d string) { fmt.Print(d) })
+		full, err := stream(reqCtx, history, func(d string) { fmt.Print(d) })
 		close(done)
 		cancel()
 		fmt.Println()
@@ -134,27 +135,32 @@ func RunPlain(ctx context.Context, cfg *config.Config) error {
 	}
 }
 
-// Once — a one-shot request without the REPL. Takes the model from cfg.SelectedModelID
-// (or the default), writes nothing to the config.
+// Once — a one-shot request without the REPL, on the active source (as in
+// the TUI). Takes the model from cfg.SelectedModelID (or the source's
+// default), writes nothing to the config.
 func Once(ctx context.Context, cfg *config.Config, prompt string) error {
-	cr, err := auth.Require()
+	i18n.Setup(cfg.Locale)
+	b, err := newPlainBackend(ctx, cfg, true)
 	if err != nil {
 		return err
 	}
-	models, err := llm.FetchModels(ctx, cfg.APIBase, cr.Token)
-	if err != nil {
-		return err
-	}
-	current := llm.PickDefault(models, cfg.SelectedModelID)
-	if current == nil {
-		return fmt.Errorf("%s", i18n.T("plain.err.pickModel"))
-	}
-	cli := llm.New(cfg.APIBase, cr.Token, current.ID, current.Provider)
-
-	_, err = cli.Stream(ctx, []llm.Message{{Role: llm.RoleUser, Content: prompt}},
+	_, err = b.open(b.current)(ctx, []llm.Message{{Role: llm.RoleUser, Content: prompt}},
 		func(d string) { fmt.Print(d) })
 	fmt.Println()
 	return err
+}
+
+// requireLogin — the ExecAI models in run and the plain REPL need a
+// sign-in. Missing credentials are explained in the gate's words; a broken
+// credentials file keeps its own error.
+func requireLogin() (*config.Credentials, error) {
+	cr, err := auth.Require()
+	if err != nil {
+		if c, lerr := config.LoadCredentials(); lerr == nil && (c == nil || c.Token == "") {
+			return nil, errors.New(plan.Verdict{Reason: plan.ReasonNotLoggedIn}.Message())
+		}
+	}
+	return cr, err
 }
 
 func printModels(models []llm.Model, currentID string) {

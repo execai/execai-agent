@@ -56,8 +56,7 @@ func Client(cfg *config.Config, subs *subscriptions.Store, modelID, provider, to
 				}
 				return llm.NewAnthropicClient(base, active.APIKey, modelID, cfg.ThinkingBudget)
 			case subscriptions.SourceZAIAPI:
-				// Открытая платформа Z.ai, pay-per-token (НЕ Coding Plan): этот
-				// путь не ограничен списком одобренных инструментов.
+				// Z.ai open platform, pay-per-token (not the Coding Plan).
 				base := active.BaseURL
 				if base == "" {
 					base = "https://api.z.ai/api/paas/v4"
@@ -82,18 +81,21 @@ func Client(cfg *config.Config, subs *subscriptions.Store, modelID, provider, to
 				}
 				return llm.NewGLMClient(base, active.APIKey, modelID)
 			case subscriptions.SourceCodexCLI:
-				cli, err := llm.NewCodexCLIClient(modelID)
-				if err != nil {
-					return llm.NewAICoreClient(cfg.APIBase, token, modelID, provider)
+				if CLIAvailable(subscriptions.SourceCodexCLI) {
+					if cli, err := llm.NewCodexCLIClient(modelID); err == nil {
+						return cli
+					}
 				}
-				return cli
+				return llm.NewAICoreClient(cfg.APIBase, token, modelID, provider)
 			case subscriptions.SourceClaudeCLI:
-				cli, err := llm.NewClaudeCLIClient(modelID)
-				if err != nil {
-					// Тихий fallback — недоступность показывает интерфейс.
-					return llm.NewAICoreClient(cfg.APIBase, token, modelID, provider)
+				// Without the binary the call falls back to the ExecAI backend;
+				// the plan gate sees it via CLIAvailable (plan.RouteOf).
+				if CLIAvailable(subscriptions.SourceClaudeCLI) {
+					if cli, err := llm.NewClaudeCLIClient(modelID); err == nil {
+						return cli
+					}
 				}
-				return cli
+				return llm.NewAICoreClient(cfg.APIBase, token, modelID, provider)
 			case subscriptions.SourceOllama:
 				base := active.BaseURL
 				// Cloud (ollama.com) — Anthropic-совместимый endpoint, нужен ключ.
@@ -112,6 +114,23 @@ func Client(cfg *config.Config, subs *subscriptions.Store, modelID, provider, to
 		}
 	}
 	return llm.NewAICoreClient(cfg.APIBase, token, modelID, provider)
+}
+
+// CLIAvailable reports whether the binary behind a CLI source (claude-cli,
+// codex-cli) is installed; any other source counts as available. Client
+// falls back to the ExecAI backend when it is not, and the plan gate reads
+// the same answer so that the fallback is checked like the ExecAI models it
+// really is. A variable so tests can pretend either way.
+var CLIAvailable = func(provider string) bool {
+	switch provider {
+	case subscriptions.SourceClaudeCLI:
+		_, err := llm.NewClaudeCLIClient("")
+		return err == nil
+	case subscriptions.SourceCodexCLI:
+		_, err := llm.NewCodexCLIClient("")
+		return err == nil
+	}
+	return true
 }
 
 // IsOllamaCloud отличает облачный ollama.com от локального сервера: у них

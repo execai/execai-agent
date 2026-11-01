@@ -112,3 +112,17 @@ func TestClient_Custom(t *testing.T) {
 		t.Errorf("anthropic-совместимый: %#v", a)
 	}
 }
+
+// Without its binary a CLI source falls back to the ExecAI backend — and
+// CLIAvailable is the one place that decides it (the plan gate reads it too).
+func TestClient_CLIUnavailableFallsBack(t *testing.T) {
+	old := CLIAvailable
+	CLIAvailable = func(string) bool { return false }
+	defer func() { CLIAvailable = old }()
+	cfg := &config.Config{APIBase: "https://api.execai.ru"}
+	for _, p := range []string{subscriptions.SourceClaudeCLI, subscriptions.SourceCodexCLI} {
+		if got := typeName(Client(cfg, store(p), "m", "p", "jwt")); got != "*llm.AICoreClient" {
+			t.Errorf("%s without its binary → %s, want *llm.AICoreClient", p, got)
+		}
+	}
+}

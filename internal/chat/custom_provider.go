@@ -171,6 +171,7 @@ func (m *tuiModel) saveCustom(sub subscriptions.Subscription) string {
 	if m.loginMode {
 		m.loginMode = false
 		m.textarea.Placeholder = i18n.T("placeholder.chat")
+		m.leaveLoginScreen()
 	}
 	msg := i18n.Tf("custom.connected", subscriptions.DisplayName(sub), sub.Provider, sub.API, sub.BaseURL)
 	if n := len(m.models); n > 0 {

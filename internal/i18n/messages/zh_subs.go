@@ -147,15 +147,9 @@ var zhSubsMessages = map[string]string{
 		"订阅与开放平台是分开计费的。\n" +
 		"\n" +
 		"充值：https://z.ai/manage-apikey/apikey-list，或继续通过 /connect zai\n" +
-		"使用订阅（参见关于其条款的提示）。",
-	"subs.connect.zaiToSWarning": "⚠ 关于 GLM Coding Plan 的使用条款。\n" +
-		"Z.ai 将该订阅限定在一份封闭的工具清单内（Claude Code、Cursor、Cline、Roo Code、\n" +
-		"OpenCode、Pi、Crush、Goose 等），execai 不在其中。\n" +
-		"按其政策，可能被限流、冻结账号，累计三次违规后封禁。承担风险的是你的账号，\n" +
-		"不是我们的，请自行斟酌。\n" +
-		"\n" +
-		"无限制的替代方案 —— Z.ai 开放平台，按量计费：\n" +
-		"  /connect zai-api <key>   — 同样的 GLM 模型，没有工具清单限制。",
+		"使用订阅。",
+	"subs.connect.zaiToSWarning": "ℹ Z.ai 允许在本代理中使用 GLM Coding Plan。代理以自己的名称标识自己，\n" +
+		"请勿将其冒充为 Claude Code。",
 	"subs.connect.zaiKeyReused":       "复用 Coding Plan 的密钥，两者是同一把",
 	"subs.connect.openrouterRejected": "✗ openrouter.ai 拒绝了该密钥（HTTP %d）。\n  需要来自 https://openrouter.ai/keys 的 sk-or-… 密钥。",
 }

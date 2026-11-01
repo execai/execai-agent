@@ -55,10 +55,11 @@ func (m *tuiModel) memoryStatus() string {
 	// Заодно смотрим, есть ли рядом чужая память — самый частый случай, когда
 	// человек не знает, что импорт вообще возможен.
 	cwd, _ := os.Getwd()
-	if srcs := agent.DiscoverMemorySources(cwd); len(srcs) > 0 {
+	plan, _ := agent.PlanImport(agent.DiscoverAllMemorySources(cwd))
+	if srcs := agent.Importable(plan); len(srcs) > 0 {
 		b.WriteString("\n\n" + i18n.Tf("memory.foundNearby", len(srcs)) + "\n")
 		for _, s := range srcs {
-			fmt.Fprintf(&b, "  • %s (%s)\n", s.Rel, s.Tool)
+			fmt.Fprintf(&b, "  • %s (%s)\n", s.Rel, s.Label())
 		}
 		b.WriteString(i18n.T("memory.importHint"))
 	}
@@ -111,19 +112,7 @@ func (m *tuiModel) memoryFind(query string) string {
 		if answer != yes {
 			return i18n.T("memory.importCancelled")
 		}
-		res, err := agent.ImportSources(srcs)
-		if err != nil {
-			return i18n.Tf("memory.error", err)
-		}
-		var out strings.Builder
-		out.WriteString(i18n.Tf("memory.imported", len(res.Imported)))
-		for _, n := range res.Imported {
-			out.WriteString("\n  + " + n)
-		}
-		for _, sk := range res.Skipped {
-			out.WriteString("\n  ~ " + sk)
-		}
-		return out.String()
+		return m.runImport(srcs)
 	}
 	return ""
 }
@@ -137,17 +126,20 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-// memoryImport ищет чужую память и просит подтверждение.
+// memoryImport looks for other agents' files here and in the home folder,
+// shows what goes where and asks before copying anything.
 func (m *tuiModel) memoryImport() string {
 	cwd, _ := os.Getwd()
-	srcs := agent.DiscoverMemorySources(cwd)
-	if len(srcs) == 0 {
+	plan, err := agent.PlanImport(agent.DiscoverAllMemorySources(cwd))
+	if err != nil {
+		return i18n.Tf("memory.error", err)
+	}
+	if len(plan) == 0 {
 		return i18n.Tf("memory.nothingToImport", cwd)
 	}
-
-	var list strings.Builder
-	for _, s := range srcs {
-		fmt.Fprintf(&list, "  • %s — %s, %d б\n      %s\n", s.Rel, s.Tool, s.SizeBytes, s.Preview)
+	srcs := agent.Importable(plan)
+	if len(srcs) == 0 {
+		return agent.DescribeImportPlan(plan) + i18n.T("import.cmd.nothingNew")
 	}
 
 	// Подтверждение обязательно: импортированное станет частью памяти, а она
@@ -159,7 +151,7 @@ func (m *tuiModel) memoryImport() string {
 	yes := i18n.T("memory.importYes")
 	m.asking = true
 	m.askFocus = 0
-	m.askQuestion = i18n.Tf("memory.importQuestion", len(srcs)) + "\n\n" + list.String()
+	m.askQuestion = i18n.Tf("memory.importQuestion", len(srcs)) + "\n\n" + agent.DescribeImportPlan(plan)
 	m.askOptions = []tools.AskOption{
 		{Label: yes, Description: i18n.T("memory.importYesDesc")},
 		{Label: i18n.T("memory.importNo"), Description: i18n.T("memory.importNoDesc")},
@@ -168,21 +160,40 @@ func (m *tuiModel) memoryImport() string {
 		if answer != yes {
 			return i18n.T("memory.importCancelled")
 		}
-		res, err := agent.ImportSources(srcs)
-		if err != nil {
-			return i18n.Tf("memory.error", err)
-		}
-		var b strings.Builder
-		b.WriteString(i18n.Tf("memory.imported", len(res.Imported)))
-		for _, n := range res.Imported {
-			b.WriteString("\n  + " + n)
-		}
-		for _, s := range res.Skipped {
-			b.WriteString("\n  ~ " + s)
-		}
-		return b.String()
+		return m.runImport(srcs)
 	}
 	return ""
+}
+
+// runImport copies the sources into memory, makes the new memory visible to
+// the next turn and reports what happened.
+func (m *tuiModel) runImport(srcs []agent.ImportSource) string {
+	res, err := agent.ImportSources(srcs)
+	if err != nil {
+		return i18n.Tf("memory.error", err)
+	}
+	if len(res.Imported) > 0 {
+		m.reloadMemory()
+	}
+	var b strings.Builder
+	b.WriteString(i18n.Tf("memory.imported", len(res.Imported)))
+	for _, n := range res.Imported {
+		b.WriteString("\n  + " + n)
+	}
+	for _, s := range res.Skipped {
+		b.WriteString("\n  ~ " + s)
+	}
+	return b.String()
+}
+
+// reloadMemory rebuilds the system prompt so memory imported mid-session is
+// seen from the next turn on, not after a restart.
+func (m *tuiModel) reloadMemory() {
+	if m.registry == nil {
+		return
+	}
+	cwd := getCWDForBoot()
+	m.system = agent.SystemPrompt(cwd, m.registry.Names(), agent.LoadMemory(cwd))
 }
 
 // memoryExport выгружает память обычными markdown-файлами.

@@ -29,6 +29,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,6 +46,7 @@ import (
 	"github.com/velesbsdllc/agent-vbai/internal/i18n"
 	"github.com/velesbsdllc/agent-vbai/internal/llm"
 	"github.com/velesbsdllc/agent-vbai/internal/llmpick"
+	"github.com/velesbsdllc/agent-vbai/internal/plan"
 	"github.com/velesbsdllc/agent-vbai/internal/security"
 	"github.com/velesbsdllc/agent-vbai/internal/sessions"
 	"github.com/velesbsdllc/agent-vbai/internal/subscriptions"
@@ -220,6 +222,10 @@ type turnDeps struct {
 	provider string
 	// autoCompactPct — порог автосжатия истории (% окна контекста, 0 = выкл).
 	autoCompactPct int
+	// gate — the plan gate, asked before the model is called (nil = none);
+	// planRoute — where the turn's calls go (plan.RouteOf at turn start).
+	gate      *plan.Checker
+	planRoute plan.Route
 }
 
 // server — процесс целиком: писатель stdout, вопросы, реестр чатов.
@@ -491,6 +497,13 @@ func (c *chatSession) runTurn(ctx context.Context, cancel context.CancelFunc, in
 		// Человек должен видеть, что ход начал агент сам и с каким промтом.
 		c.emit(Out{Type: "auto_user", Text: in.Text})
 	}
+	// Plan gate: a refusal ends the turn with its text, the model is not called.
+	if deps.gate != nil {
+		if v := deps.gate.Check(ctx, deps.planRoute); !v.Allowed {
+			c.finishTurn(cancel, nil, errors.New(v.Message()), ctx, start, nil, deps)
+			return
+		}
+	}
 	ctx = withChat(ctx, c)
 	ctx = tools.WithWakeupSink(ctx, func(r tools.ScheduleRequest) {
 		c.mu.Lock()
@@ -505,6 +518,9 @@ func (c *chatSession) runTurn(ctx context.Context, cancel context.CancelFunc, in
 		attached = in.Context.Files
 	}
 	newHist, err := a.RunWithFiles(ctx, hist, buildPrompt(in), attached)
+	if errors.Is(err, llm.ErrPaymentRequired) && deps.gate != nil {
+		deps.gate.RefreshAsync() // the plan has most likely just ended
+	}
 	if err == nil && ctx.Err() == nil {
 		newHist = c.maybeAutoCompact(ctx, newHist, deps, a.LastPromptTokens)
 	}
@@ -677,6 +693,12 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 	}
 
 	s := newServer(json.NewEncoder(os.Stdout), opts.Cwd)
+
+	// Plan gate: each turn on the ExecAI models asks it; billing is refreshed
+	// in the background only while the ExecAI models are the active source.
+	i18n.Setup(cfg.Locale)
+	gate := plan.New(cfg.APIBase)
+	gate.Start(ctx, plan.OnExecAI)
 
 	// Модели — cache-first, как TUI: редактор должен подняться и без сети.
 	res := llm.FetchModelsCached(cfg.APIBase, cr.Token)
@@ -857,7 +879,8 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 		}
 		return turnDeps{cli: cli, sys: sys, registry: registry, maxIter: maxIter,
 			modelID: currentID, provider: providerFor(currentID),
-			autoCompactPct: cfg.GetAutoCompactPercent()}
+			autoCompactPct: cfg.GetAutoCompactPercent(),
+			gate:           gate, planRoute: plan.RouteOf(subs)}
 	}
 	_ = perms
 
