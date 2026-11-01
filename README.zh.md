@@ -25,6 +25,7 @@ Type a task. /model — models, /help — commands, /quit — exit.
 
 ## 目录
 
+1. [第七版新功能](#第七版新功能)
 1. [安装](#安装)
 2. [首次运行](#首次运行)
 3. [与 agent 对话](#与-agent-对话)
@@ -498,6 +499,19 @@ AI 会：
 
 ---
 
+## 第七版新功能
+
+第七代是迄今最大的一次更新。完整说明（俄文）：[scripts/release-notes](scripts/release-notes/)。
+
+- **并行子代理。** 模型用 `Task` 工具分派子任务：同一条回复中的多个 `Task` 同时运行，`background: true` 不会打断对话，`TaskWait` 收集结果。模式 `read`（只读工具，从不提问）或 `write`（编辑工具；权限会向你询问，并标注代理名称），模型 `same | fast | <id>`。谁在做什么：输入框上方的 **「代理」** 区块、`/agents`、`/agents open N`、`/agents stop N`；编辑器面板和 execai.ru 的机器卡片上显示同一份列表。
+- **来自网站的任务直接进入编辑器面板。** 打开项目的 VS Code / ExecAI Studio 窗口会自动接收来自网页聊天或手机的任务：任务以带「来自网站」标记的聊天形式出现，权限询问同时到达面板和网站。在面板菜单中绑定项目。Work 和 Max 套餐。
+- **浏览器中的面板 — `execai ui`。** 不需要编辑器的同一面板：127.0.0.1 上的一次性链接 — [指南](docs/en/ui.md)。
+- **带口令的同步 — `execai sync on`。** 记忆、设置和提供商密钥在你的机器上用同步口令加密；服务器只保存密文，无法读取。项目按项目同步：`/project publish` 把文件夹变成网页项目，`/project bind` 把网页项目展开到文件夹。Work 和 Max 套餐；`execai sync keys export|import` 直接传递提供商密钥，不经过服务器，也不需要套餐 — [指南](docs/en/sync.md)。
+- **从其他代理迁移。** `CLAUDE.md`、`.cursorrules`、`AGENTS.md`、`.windsurfrules`、`GEMINI.md`、`copilot-instructions.md` 会被收入记忆：`/memory import`、`execai import --dry-run` — [指南](docs/en/migrate.md)。
+- **ExecAI 模型按套餐使用，自己的密钥无需套餐。** `/plan` 显示套餐；`zai|kimi|openai|anthropic|openrouter|custom|claude-cli|codex-cli|ollama` 这些来源无需账号即可使用。
+
+---
+
 ## 在编辑器中 — VS Code、Cursor、ExecAI Studio
 
 同一个 agent 也运行在 [VS Code / Cursor 扩展](https://marketplace.visualstudio.com/items?itemName=execai.execai) 和 [ExecAI Studio](https://github.com/execai/execai-studio) 中。自 R6.8x 起面板支持多聊天：
@@ -506,12 +520,15 @@ AI 会：
 - **标签徽标。** 闪烁的点——agent 正在那里工作；绿点——已完成但你还没看；`?`——等待你的回答（权限或 AskUser 问题）；⏰——已安排唤醒。当你在别处时完成或提问的聊天还会弹出带 **打开** 按钮的提示。
 - **唤醒在编辑器中同样有效。** 当模型调用 `schedule_wakeup` 时，聊天会显示「将于 14:05 唤醒 — 原因」并附 **立即** / **取消** 按钮，标签获得 ⏰。唤醒随聊天保存：关闭编辑器再打开——过期的立即触发，未来的恢复计时。
 - **用 `wait` 代替承诺。** 模型被要求绝不写「五分钟后我再检查」：它会调用 `wait`（短等待，在本轮内，可轮询命令）或 `schedule_wakeup`（长等待，释放聊天）。
+- **在浏览器中 — `execai ui`。** 同一个面板，在 127.0.0.1 的浏览器标签页中打开，无需编辑器：在项目目录运行 `execai ui`，它会打印一次性链接并打开；Ctrl+C 停止 — [说明](docs/en/ui.md)。
 
 ---
 
 ## Agent 记忆
 
 Agent 会跨会话记住事实 — 类似 Claude Code，但更简单。它会自动加载到 system prompt 里（只加载索引，不是全部内容）— 上下文保持轻量。
+
+记忆、设置、权限和服务商密钥可以在你所有的电脑上保持一致，并用你的同步密码加密（«Work» 和 «Max» 套餐）：`/sync on` — [说明](docs/en/sync.md)。
 
 ### 文件放在哪里
 

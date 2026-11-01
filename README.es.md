@@ -25,6 +25,7 @@ Type a task. /model — models, /help — commands, /quit — exit.
 
 ## Contenido
 
+1. [Novedades de la versión 7](#novedades-de-la-versión-7)
 1. [Instalación](#instalación)
 2. [Primera ejecución](#primera-ejecución)
 3. [Hablar con el agente](#hablar-con-el-agente)
@@ -498,6 +499,19 @@ Si la IA decide que la tarea está hecha, simplemente no llama a `schedule_wakeu
 
 ---
 
+## Novedades de la versión 7
+
+La séptima línea es la mayor actualización del agente hasta ahora. Notas completas (en ruso): [scripts/release-notes](scripts/release-notes/).
+
+- **Subagentes en paralelo.** El modelo reparte subtareas con la herramienta `Task`: varias llamadas `Task` en una misma respuesta corren a la vez, `background: true` no detiene la conversación, `TaskWait` recoge los resultados. Modo `read` (solo lectura, nunca pregunta) o `write` (herramientas de edición; los permisos se te piden a ti, marcados con el nombre del agente), modelo `same | fast | <id>`. Quién hace qué: el bloque **«Agentes»** sobre la entrada, `/agents`, `/agents open N`, `/agents stop N`; la misma lista en el panel del editor y en la tarjeta de la máquina en execai.ru.
+- **Las tareas desde el sitio llegan al panel del editor.** Una ventana de VS Code / ExecAI Studio con un proyecto abierto acepta por sí sola las tareas enviadas desde el chat web o el teléfono: la tarea se abre como un chat con la marca «desde el sitio», y una pregunta de permiso llega al panel y al sitio. Vincula el proyecto desde el menú del panel. Planes Work y Max.
+- **El panel en el navegador — `execai ui`.** El mismo panel sin editor: un enlace de un solo uso en 127.0.0.1 — [guía](docs/en/ui.md).
+- **Sincronización con contraseña — `execai sync on`.** La memoria, los ajustes y las claves de proveedores se cifran en tus máquinas con una contraseña de sincronización; el servidor guarda solo texto cifrado y no puede leerlo. Los proyectos se sincronizan por proyecto: `/project publish` convierte una carpeta en un proyecto web, `/project bind` despliega un proyecto web en una carpeta. Planes Work y Max; `execai sync keys export|import` traslada las claves de proveedores directamente, sin servidor y sin plan — [guía](docs/en/sync.md).
+- **Migración desde otro agente.** `CLAUDE.md`, `.cursorrules`, `AGENTS.md`, `.windsurfrules`, `GEMINI.md`, `copilot-instructions.md` pasan a la memoria: `/memory import`, `execai import --dry-run` — [guía](docs/en/migrate.md).
+- **Modelos de ExecAI por plan, tus propias claves sin él.** `/plan` muestra el plan; las fuentes `zai|kimi|openai|anthropic|openrouter|custom|claude-cli|codex-cli|ollama` funcionan sin cuenta.
+
+---
+
 ## En el editor — VS Code, Cursor, ExecAI Studio
 
 El mismo agente corre dentro de la [extensión de VS Code / Cursor](https://marketplace.visualstudio.com/items?itemName=execai.execai) y de [ExecAI Studio](https://github.com/execai/execai-studio). Desde R6.8x el panel es multichat:
@@ -506,12 +520,15 @@ El mismo agente corre dentro de la [extensión de VS Code / Cursor](https://mark
 - **Insignias en las pestañas.** Punto pulsante — el agente trabaja ahí; punto verde — terminó y aún no lo has mirado; `?` — espera tu respuesta (un permiso o una pregunta AskUser); ⏰ — hay un despertar programado. Un chat que termina o pregunta mientras estás en otro también muestra un aviso con el botón **Abrir**.
 - **Los despertares también funcionan en el editor.** Cuando el modelo llama a `schedule_wakeup`, el chat muestra «despertará a las 14:05 — motivo» con botones **Ahora** / **Cancelar**, y la pestaña recibe ⏰. El despertar se guarda con el chat: cierra el editor y vuelve a abrirlo — uno vencido se dispara al instante, uno futuro recupera su temporizador.
 - **`wait` en vez de promesas.** Al modelo se le indica no escribir nunca «lo compruebo en cinco minutos»: llama a `wait` (esperas cortas dentro del turno, opcionalmente sondeando un comando) o a `schedule_wakeup` (esperas largas; el chat queda libre).
+- **En el navegador — `execai ui`.** El mismo panel en una pestaña del navegador en 127.0.0.1, sin editor: `execai ui` en el directorio del proyecto muestra un enlace de un solo uso y lo abre; Ctrl+C lo detiene — [guía](docs/en/ui.md).
 
 ---
 
 ## Memoria del agente
 
 El agente recuerda hechos entre sesiones, como Claude Code, pero más simple. Se carga automáticamente en el system prompt (solo el índice, no todo a la vez): el contexto se mantiene ligero.
+
+La memoria, los ajustes, los permisos y las claves de los proveedores pueden ser iguales en todos tus ordenadores, cifrados con tu contraseña de sincronización (planes «Work» y «Max»): `/sync on` — [guía](docs/en/sync.md).
 
 ### Dónde va cada cosa
 

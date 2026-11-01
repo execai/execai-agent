@@ -119,3 +119,73 @@ func TestTask_RequiresPrompt(t *testing.T) {
 		t.Error("Task без prompt должен возвращать ошибку")
 	}
 }
+
+// Task parameters: defaults, the iteration cap and a bad mode.
+func TestParseSubagentRequest(t *testing.T) {
+	req, err := ParseSubagentRequest(json.RawMessage(`{"description":" find X ","prompt":"p"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Mode != "read" || req.Model != "same" || req.MaxIterations != SubagentDefaultIterations || req.Background {
+		t.Errorf("defaults: %+v", req)
+	}
+	if req.Description != "find X" {
+		t.Errorf("description %q", req.Description)
+	}
+	req, err = ParseSubagentRequest(json.RawMessage(`{"description":"d","prompt":"p","mode":"WRITE","model":"fast","max_iterations":500,"background":true,"cwd":"sub"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Mode != "write" || req.Model != "fast" || req.MaxIterations != SubagentMaxIterations || !req.Background || req.Cwd != "sub" {
+		t.Errorf("explicit: %+v", req)
+	}
+	if _, err := ParseSubagentRequest(json.RawMessage(`{"prompt":"p","mode":"admin"}`)); err == nil {
+		t.Error("unknown mode accepted")
+	}
+}
+
+// A write subagent acts, but cannot recurse, ask questions or schedule
+// wake-ups for a turn it will never have.
+func TestForSubagent_WriteSet(t *testing.T) {
+	r := ForSubagent(".", true)
+	for _, name := range []string{"Write", "Edit", "Bash", "Read"} {
+		if _, ok := r.Get(name); !ok {
+			t.Errorf("write subagent lacks %s", name)
+		}
+	}
+	for _, name := range []string{"Task", "TaskWait", "AskUser", "schedule_wakeup"} {
+		if _, ok := r.Get(name); ok {
+			t.Errorf("write subagent has %s", name)
+		}
+	}
+	if _, ok := ForSubagent(".", false).Get("Bash"); ok {
+		t.Error("read subagent has Bash")
+	}
+}
+
+// The runner comes from the turn's context; the tool-call key goes with it.
+func TestTask_UsesRunnerFromContext(t *testing.T) {
+	SetSubagentRunner(nil)
+	if _, err := (&TaskTool{}).Execute(context.Background(), json.RawMessage(`{"description":"x","prompt":"p"}`)); err != ErrSubagentUnavailable {
+		t.Fatalf("without a runner: %v", err)
+	}
+	r := &recRunner{}
+	ctx := WithToolCallID(WithSubagentRunner(context.Background(), r), "call-7")
+	out, err := (&TaskTool{}).Execute(ctx, json.RawMessage(`{"description":"x","prompt":"p"}`))
+	if err != nil || out != "ran x" || r.got.ToolCall != "call-7" {
+		t.Errorf("out %q err %v req %+v", out, err, r.got)
+	}
+	out, err = (&TaskWaitTool{}).Execute(ctx, json.RawMessage(`{}`))
+	if err != nil || out != "waited all" {
+		t.Errorf("TaskWait: %q %v", out, err)
+	}
+}
+
+type recRunner struct{ got SubagentRequest }
+
+func (r *recRunner) Run(_ context.Context, req SubagentRequest) (string, error) {
+	r.got = req
+	return "ran " + req.Description, nil
+}
+
+func (r *recRunner) Wait(_ context.Context, id string) (string, error) { return "waited " + id, nil }

@@ -255,3 +255,32 @@ func TestChecker_StartOnlyWhenExecAI(t *testing.T) {
 		t.Errorf("billing asked %d times on the ExecAI source, want 1", b.calls.Load())
 	}
 }
+
+// EnsureDaily (sync) keeps a saved answer, a refusal included, for a day,
+// and re-asks once it is older than RefreshEvery.
+func TestChecker_EnsureDailyKeepsAnswerForADay(t *testing.T) {
+	b := newBilling(t, 200, bodyActive)
+	path := filepath.Join(t.TempDir(), "plan.json")
+	writeCache(t, path, Plan{LoggedOut: false, CheckedAt: t0.Add(-time.Hour), TokenFP: fingerprint("tok")})
+
+	c := checkerAt(b.srv.URL, path, "tok", t0)
+	if p := c.EnsureDaily(context.Background()); p == nil || p.Granted() {
+		t.Fatalf("saved refusal must stand: %+v", p)
+	}
+	if n := b.calls.Load(); n != 0 {
+		t.Fatalf("a refusal younger than a day must not be re-asked, calls=%d", n)
+	}
+
+	c.now = func() time.Time { return t0.Add(RefreshEvery) }
+	if p := c.EnsureDaily(context.Background()); p == nil || !p.Granted() {
+		t.Fatalf("an answer older than a day must be re-asked: %+v", p)
+	}
+	if n := b.calls.Load(); n != 1 {
+		t.Fatalf("calls=%d, want 1", n)
+	}
+	// The same process does not ask again within the day.
+	_ = c.EnsureDaily(context.Background())
+	if n := b.calls.Load(); n != 1 {
+		t.Fatalf("calls=%d, want 1", n)
+	}
+}

@@ -16,11 +16,11 @@ import (
 // reqLogEntry is a single record.
 type reqLogEntry struct {
 	Ts             string `json:"ts"`
-	Source         string `json:"source"`           // execai | zai | ...
+	Source         string `json:"source"` // execai | zai | ...
 	BaseURL        string `json:"base_url"`
 	ModelRequested string `json:"model_requested"`
 	ModelReturned  string `json:"model_returned,omitempty"` // what the server sent in message_start (Anthropic API)
-	Status         string `json:"status"`           // ok | error | ...
+	Status         string `json:"status"`                   // ok | error | ...
 	ContentLen     int    `json:"content_len"`
 	ToolCalls      int    `json:"tool_calls"`
 	// Anthropic returns usage in message_delta. For Z.ai it lets us count

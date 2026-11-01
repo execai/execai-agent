@@ -124,7 +124,7 @@ func stripANSI(s string) string {
 			}
 			if s[i] == '[' || s[i] == ']' || s[i] == '(' {
 				i++
-				for i < len(s) && !((s[i] >= '@' && s[i] <= '~')) {
+				for i < len(s) && !(s[i] >= '@' && s[i] <= '~') {
 					i++
 				}
 				if i < len(s) {

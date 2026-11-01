@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/velesbsdllc/agent-vbai/internal/i18n"
 	"github.com/velesbsdllc/agent-vbai/internal/llm"
@@ -53,6 +54,17 @@ type Streamer interface {
 	OnIterationStart(n int)
 }
 
+// ToolCallStreamer is an optional extension of Streamer for interfaces that
+// can show several tool calls at once. Each call carries a key unique within
+// the run, so a result is matched to its card even when parallel calls
+// (several Task subagents) finish out of order. When the streamer implements
+// it, the loop uses it for every tool call instead of OnToolCall/OnToolResult;
+// OnToolChunk still comes for the one sequential tool that is streaming.
+type ToolCallStreamer interface {
+	OnToolStart(key, name string, args json.RawMessage)
+	OnToolEnd(key, name, result string, err error)
+}
+
 type Agent struct {
 	Client   llm.StreamingLLM // ExecAI (AICoreClient) or an external subscription (GLMClient etc.)
 	Tools    *tools.Registry
@@ -78,6 +90,20 @@ type Agent struct {
 	// Persistent permissions (stored in ~/.config/execai/permissions.json).
 	// Loaded when the Agent is created, updated on ApproveAlways.
 	Permissions *Permissions
+
+	// Checkpoint, when set, receives the history after every iteration (the
+	// assistant message plus its tool results) and the last known prompt
+	// size. Subagents save their session with it, so a transcript can be
+	// opened while the work is still going on. Called on the loop goroutine.
+	Checkpoint func(history []llm.AIMessage, promptTokens int)
+
+	// Exhausted — the last Run stopped at MaxIterations (the soft stop that
+	// appends a hint instead of an answer). Read after Run returns.
+	Exhausted bool
+
+	// mu guards allowedTools/allowedExactArgs: parallel tool calls of one
+	// turn may ask at the same time.
+	mu sync.Mutex
 }
 
 func New(cli llm.StreamingLLM, reg *tools.Registry, sys string, ap Approver, st Streamer) *Agent {
@@ -126,6 +152,8 @@ func (a *Agent) RunWithFiles(ctx context.Context, history []llm.AIMessage, userM
 		defsRaw = append(defsRaw, m)
 	}
 
+	a.Exhausted = false
+	keys := map[string]bool{}
 	for i := 0; i < a.MaxIterations; i++ {
 		if a.Streamer != nil {
 			a.Streamer.OnIterationStart(i + 1)
@@ -172,21 +200,18 @@ func (a *Agent) RunWithFiles(ctx context.Context, history []llm.AIMessage, userM
 			return out, nil
 		}
 
-		// Execute each tool_call in order.
-		for _, tc := range res.ToolCalls {
-			args := json.RawMessage(tc.Function.Arguments)
-			if a.Streamer != nil {
-				a.Streamer.OnToolCall(tc.Function.Name, args)
-			}
-			result, err := a.runTool(ctx, tc.Function.Name, args)
-			if a.Streamer != nil {
-				a.Streamer.OnToolResult(tc.Function.Name, result, err)
-			}
-			content := result
-			if err != nil {
-				content = fmt.Sprintf("ERROR: %v", err)
-				if result != "" {
-					content += "\n\n" + result
+		// Execute the tool calls. Calls of parallel tools (Task) run at the
+		// same time; any other call waits for the parallel ones started before
+		// it, so the order the model wrote still holds for everything with
+		// side effects. Results go back in the original order.
+		results := a.runBatch(ctx, i, res.ToolCalls, keys)
+		for idx, tc := range res.ToolCalls {
+			r := results[idx]
+			content := r.result
+			if r.err != nil {
+				content = fmt.Sprintf("ERROR: %v", r.err)
+				if r.result != "" {
+					content += "\n\n" + r.result
 				}
 			}
 			out = append(out, llm.AIMessage{
@@ -196,6 +221,9 @@ func (a *Agent) RunWithFiles(ctx context.Context, history []llm.AIMessage, userM
 				Content:    content,
 			})
 		}
+		if a.Checkpoint != nil {
+			a.Checkpoint(out, a.LastPromptTokens)
+		}
 	}
 	// Soft stop: instead of failing the chat with an error, insert an assistant hint.
 	// The user sees the context of the last state and can say 'continue'
@@ -204,7 +232,96 @@ func (a *Agent) RunWithFiles(ctx context.Context, history []llm.AIMessage, userM
 		Role:    "assistant",
 		Content: i18n.Tf("loop.iterationLimit", a.MaxIterations, a.MaxIterations),
 	})
+	a.Exhausted = true
+	if a.Checkpoint != nil {
+		a.Checkpoint(out, a.LastPromptTokens)
+	}
 	return out, nil
+}
+
+// toolOutcome — the result of one tool call of a batch.
+type toolOutcome struct {
+	result string
+	err    error
+}
+
+// isParallel reports whether calls of the tool may run alongside each other.
+func (a *Agent) isParallel(name string) bool {
+	t, ok := a.Tools.Get(name)
+	if !ok {
+		return false
+	}
+	p, ok := t.(tools.ParallelTool)
+	return ok && p.Parallel()
+}
+
+// runBatch executes one assistant message's tool calls and returns their
+// outcomes in the original order.
+func (a *Agent) runBatch(ctx context.Context, iter int, calls []llm.ToolCall, keys map[string]bool) []toolOutcome {
+	results := make([]toolOutcome, len(calls))
+	var group sync.WaitGroup
+	// emitMu pairs call and result for a streamer that knows only one
+	// current call: parallel ones are reported together when they finish.
+	var emitMu sync.Mutex
+	idStreamer, _ := a.Streamer.(ToolCallStreamer)
+	for idx, tc := range calls {
+		name := tc.Function.Name
+		args := json.RawMessage(tc.Function.Arguments)
+		key := callKey(tc.ID, iter, idx, keys)
+		callCtx := tools.WithToolCallID(ctx, key)
+		if a.isParallel(name) {
+			if idStreamer != nil {
+				idStreamer.OnToolStart(key, name, args)
+			}
+			group.Add(1)
+			go func(idx int) {
+				defer group.Done()
+				result, err := a.runTool(callCtx, name, args)
+				results[idx] = toolOutcome{result, err}
+				switch {
+				case idStreamer != nil:
+					idStreamer.OnToolEnd(key, name, result, err)
+				case a.Streamer != nil:
+					emitMu.Lock()
+					a.Streamer.OnToolCall(name, args)
+					a.Streamer.OnToolResult(name, result, err)
+					emitMu.Unlock()
+				}
+			}(idx)
+			continue
+		}
+		// A sequential call sees the effects of everything before it.
+		group.Wait()
+		switch {
+		case idStreamer != nil:
+			idStreamer.OnToolStart(key, name, args)
+		case a.Streamer != nil:
+			a.Streamer.OnToolCall(name, args)
+		}
+		result, err := a.runTool(callCtx, name, args)
+		results[idx] = toolOutcome{result, err}
+		switch {
+		case idStreamer != nil:
+			idStreamer.OnToolEnd(key, name, result, err)
+		case a.Streamer != nil:
+			a.Streamer.OnToolResult(name, result, err)
+		}
+	}
+	group.Wait()
+	return results
+}
+
+// callKey names a tool call for the interface and for the subagents it
+// starts: the provider's call id when it is usable, otherwise one made up
+// from the iteration and position (some OpenAI-compatible servers send empty
+// or repeated ids).
+func callKey(id string, iter, idx int, seen map[string]bool) string {
+	key := id
+	if key == "" || seen[key] {
+		key = fmt.Sprintf("call-%d-%d", iter+1, idx)
+	}
+	seen[key] = true
+	return key
 }
 
 func (a *Agent) runTool(ctx context.Context, name string, args json.RawMessage) (string, error) {
@@ -261,7 +378,10 @@ func (a *Agent) approve(t tools.Tool, name string, args json.RawMessage) bool {
 	}
 	// If already allowed — persisted, session-wide, or for this exact command — skip the prompt.
 	persistAllow := a.Permissions != nil && (a.Permissions.HasTool(name) || a.Permissions.HasExact(exactKey))
-	if persistAllow || a.allowedTools[name] || a.allowedExactArgs[exactKey] {
+	a.mu.Lock()
+	sessionAllow := a.allowedTools[name] || a.allowedExactArgs[exactKey]
+	a.mu.Unlock()
+	if persistAllow || sessionAllow {
 		return true
 	}
 	summary := summaryFor(name, args)
@@ -274,9 +394,13 @@ func (a *Agent) approve(t tools.Tool, name string, args json.RawMessage) bool {
 	case ApproveDeny:
 		return false
 	case ApproveTool:
+		a.mu.Lock()
 		a.allowedTools[name] = true
+		a.mu.Unlock()
 	case ApproveExactArgs:
+		a.mu.Lock()
 		a.allowedExactArgs[exactKey] = true
+		a.mu.Unlock()
 	case ApproveAlways:
 		if a.Permissions != nil {
 			// У инструмента со своим масштабом «навсегда» означает
@@ -334,6 +458,11 @@ func summaryFor(name string, args json.RawMessage) string {
 	case "Edit":
 		if p, _ := generic["path"].(string); p != "" {
 			return "Edit: " + p
+		}
+	case "Task":
+		// The subagent's card shows its title, not the whole prompt.
+		if d, _ := generic["description"].(string); strings.TrimSpace(d) != "" {
+			return TaskCardTitle(generic)
 		}
 	}
 	raw, _ := json.Marshal(generic)

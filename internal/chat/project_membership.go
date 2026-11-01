@@ -12,24 +12,19 @@
 package chat
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"net/http"
 
 	"github.com/velesbsdllc/agent-vbai/internal/i18n"
+	"github.com/velesbsdllc/agent-vbai/internal/inbox"
 )
 
 // agentToolID — tool_id, под которым агент живёт в workspace_tools.
 // Должен совпадать с записью в каталоге integrations-vbai.
-const agentToolID = "agent"
+const agentToolID = inbox.AgentToolID
 
 // workspaceTool — запись инструмента в проекте.
-type workspaceTool struct {
-	ID      int    `json:"id"`
-	ToolID  string `json:"tool_id"`
-	Profile string `json:"profile"`
-	Enabled bool   `json:"enabled"`
-}
+type workspaceTool = inbox.WorkspaceTool
 
 // selfAgentID — id этой машины. Пустая строка означает, что мы залогинены не
 // как агент (например, токеном из браузера) — тогда в проект добавлять нечего.
@@ -55,44 +50,27 @@ func (m *tuiModel) selfAlias() string {
 // Второе значение — найдена ли: сама запись может быть выключена, и nil-проверки
 // для этого недостаточно.
 func findAgentTool(w workspace, agentID string) (workspaceTool, bool) {
-	for _, t := range w.Tools {
-		if t.ToolID == agentToolID && t.Profile == agentID {
-			return workspaceTool{ID: t.ID, ToolID: t.ToolID, Profile: t.Profile, Enabled: t.Enabled}, true
-		}
-	}
-	return workspaceTool{}, false
+	return inbox.FindAgentTool(w, agentID)
 }
 
-// addAgentToProject добавляет агента в проект инструментом.
-//
-// Идемпотентность на нашей стороне: POST в integrations-vbai не проверяет
-// дубликаты и на каждый вызов создаёт новую строку. Без этой проверки
-// повторный /project bind оставлял бы в карточке проекта одного и того же
-// агента столько раз, сколько его привязывали.
+// addAgentToProject adds the agent to the project as a tool (idempotent:
+// integrations-vbai does not deduplicate).
 func (m *tuiModel) addAgentToProject(w workspace, agentID string) error {
-	if _, ok := findAgentTool(w, agentID); ok {
-		return nil
+	cl, err := m.projectClient()
+	if err != nil {
+		return err
 	}
-	body, _ := json.Marshal(map[string]any{
-		"tool_id": agentToolID,
-		"profile": agentID,
-		"enabled": true,
-	})
-	_, err := m.apiRequest(http.MethodPost,
-		"/integrations-vbai/workspaces/"+w.ID+"/tools", body)
-	return err
+	return cl.AddAgent(context.Background(), w, agentID)
 }
 
 // removeAgentFromProject убирает агента из проекта. Отсутствие записи — не
 // ошибка: пользователь мог удалить её из веб-интерфейса.
 func (m *tuiModel) removeAgentFromProject(w workspace, agentID string) error {
-	t, ok := findAgentTool(w, agentID)
-	if !ok {
-		return nil
+	cl, err := m.projectClient()
+	if err != nil {
+		return err
 	}
-	_, err := m.apiRequest(http.MethodDelete,
-		fmt.Sprintf("/integrations-vbai/workspaces/%s/tools/%d", w.ID, t.ID), nil)
-	return err
+	return cl.RemoveAgent(context.Background(), w, agentID)
 }
 
 // setAgentEnabled включает или выключает агента в проекте — тот же тумблер,
@@ -105,8 +83,9 @@ func (m *tuiModel) setAgentEnabled(w workspace, agentID string, enabled bool) er
 	if t.Enabled == enabled {
 		return nil
 	}
-	body, _ := json.Marshal(map[string]any{"enabled": enabled})
-	_, err := m.apiRequest(http.MethodPut,
-		fmt.Sprintf("/integrations-vbai/workspaces/%s/tools/%d", w.ID, t.ID), body)
-	return err
+	cl, err := m.projectClient()
+	if err != nil {
+		return err
+	}
+	return cl.SetToolEnabled(context.Background(), w.ID, t.ID, enabled)
 }

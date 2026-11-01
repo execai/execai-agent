@@ -8,41 +8,23 @@
 package chat
 
 import (
-	"bytes"
-	"encoding/json"
+	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/velesbsdllc/agent-vbai/internal/i18n"
+	"github.com/velesbsdllc/agent-vbai/internal/inbox"
 	"github.com/velesbsdllc/agent-vbai/internal/serve"
 	"github.com/velesbsdllc/agent-vbai/internal/tools"
-	"github.com/velesbsdllc/agent-vbai/internal/version"
 )
 
-// workspace — проект из integrations-vbai.
-type workspace struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	IsDefault bool   `json:"is_default"`
-	Tools     []struct {
-		// ID нужен, чтобы включать/выключать и удалять запись: PUT и DELETE
-		// в integrations-vbai адресуются по id строки, а не по tool_id.
-		ID      int    `json:"id"`
-		ToolID  string `json:"tool_id"`
-		Profile string `json:"profile"`
-		Enabled bool   `json:"enabled"`
-	} `json:"tools"`
-}
+// workspace is a project from integrations-vbai. The project API is shared
+// with the editor panel and lives in internal/inbox.
+type workspace = inbox.Workspace
 
-// binding — привязка агента к проекту из agents-vbai.
-type binding struct {
-	AgentID     string `json:"agent_id"`
-	WorkspaceID string `json:"workspace_id"`
-	LocalPath   string `json:"local_path"`
-}
+// binding ties a project to a directory of this machine (agents-vbai).
+type binding = inbox.Binding
 
 func (m *tuiModel) handleProjectCommand(cmd string) string {
 	arg := strings.TrimSpace(strings.TrimPrefix(cmd, "/project"))
@@ -51,6 +33,9 @@ func (m *tuiModel) handleProjectCommand(cmd string) string {
 		return m.projectList()
 	case strings.HasPrefix(arg, "bind"):
 		return m.projectBind(strings.TrimSpace(strings.TrimPrefix(arg, "bind")))
+	case arg == "publish" || strings.HasPrefix(arg, "publish "):
+		cwd, _ := os.Getwd()
+		return m.projectPublish(strings.TrimSpace(strings.TrimPrefix(arg, "publish")), cwd, true)
 	case arg == "unbind":
 		return m.projectUnbind()
 	case arg == "on":
@@ -180,25 +165,13 @@ func (m *tuiModel) projectBind(nameOrID string) string {
 	}
 
 	cwd, _ := os.Getwd()
-	body, _ := json.Marshal(map[string]string{
-		"workspace_id": target.ID,
-		"local_path":   cwd,
-	})
-	if _, err := m.agentsAPI(http.MethodPost, "/workspaces/bind", body); err != nil {
+	bound, toolOK, err := m.bindHere(*target, cwd)
+	if err != nil {
 		return i18n.Tf("project.error", err)
 	}
-
-	// Привязка каталога — только наша половина дела. Вторая половина: агент
-	// должен появиться в самом проекте, иначе в вебе его не видно и выключить
-	// нельзя. Ошибку здесь не считаем фатальной — каталог уже привязан, и
-	// молчать об этом хуже, чем сказать, что видна только половина.
-	if agentID := m.selfAgentID(); agentID != "" {
-		if err := m.addAgentToProject(*target, agentID); err != nil {
-			return i18n.Tf("project.boundNoTool", target.Name, cwd, err)
-		}
+	if !toolOK {
+		return bound
 	}
-
-	bound := i18n.Tf("project.bound", target.Name, cwd)
 
 	// Привязка без работающего слушателя бесполезна: задача из веба уйдёт в
 	// очередь, а в чате будет «агент не отвечает». Предлагаем поднять его
@@ -298,8 +271,11 @@ func (m *tuiModel) projectUnbind() string {
 	}
 	for _, b := range binds {
 		if b.LocalPath == cwd {
-			body, _ := json.Marshal(map[string]string{"workspace_id": b.WorkspaceID})
-			if _, err := m.agentsAPI(http.MethodPost, "/workspaces/unbind", body); err != nil {
+			cl, err := m.projectClient()
+			if err != nil {
+				return i18n.Tf("project.error", err)
+			}
+			if err := cl.Unbind(context.Background(), b.WorkspaceID); err != nil {
 				return i18n.Tf("project.error", err)
 			}
 			// Убираем и из состава проекта: иначе в вебе остался бы агент,
@@ -321,87 +297,30 @@ func (m *tuiModel) projectUnbind() string {
 }
 
 func (m *tuiModel) fetchWorkspaces() ([]workspace, error) {
-	data, err := m.apiGet("/integrations-vbai/workspaces")
+	cl, err := m.projectClient()
 	if err != nil {
 		return nil, err
 	}
-	var list []workspace
-	if err := json.Unmarshal(data, &list); err == nil {
-		return list, nil
-	}
-	// Часть версий отдаёт объектом.
-	var wrapped struct {
-		Workspaces []workspace `json:"workspaces"`
-	}
-	if err := json.Unmarshal(data, &wrapped); err != nil {
-		return nil, fmt.Errorf("не разобрать список проектов: %w", err)
-	}
-	return wrapped.Workspaces, nil
+	return cl.Workspaces(context.Background())
 }
 
 func (m *tuiModel) fetchBindings() ([]binding, error) {
-	data, err := m.apiGet("/agents-vbai/workspaces/bindings")
+	cl, err := m.projectClient()
 	if err != nil {
 		return nil, err
 	}
-	var wrapped struct {
-		Bindings []binding `json:"bindings"`
-	}
-	if err := json.Unmarshal(data, &wrapped); err != nil {
-		return nil, fmt.Errorf("не разобрать привязки: %w", err)
-	}
-	return wrapped.Bindings, nil
+	return cl.Bindings(context.Background())
 }
 
-// agentsAPI — POST в agents-vbai через шлюз.
-func (m *tuiModel) agentsAPI(method, path string, body []byte) ([]byte, error) {
-	return m.apiRequest(method, "/agents-vbai"+path, body)
-}
-
-func (m *tuiModel) apiGet(path string) ([]byte, error) {
-	return m.apiRequest(http.MethodGet, path, nil)
-}
-
-// apiRequest — запрос к нашему шлюзу с токеном пользователя.
-func (m *tuiModel) apiRequest(method, path string, body []byte) ([]byte, error) {
+// projectClient is the projects-and-bindings client with the person's token.
+func (m *tuiModel) projectClient() (*inbox.Client, error) {
 	token := m.credsToken()
 	if token == "" {
 		return nil, fmt.Errorf("%s", i18n.T("project.needLogin"))
 	}
 	base := "https://api.execai.ru"
 	if m.cfg != nil && m.cfg.APIBase != "" {
-		base = strings.TrimRight(m.cfg.APIBase, "/")
+		base = m.cfg.APIBase
 	}
-	var rdr *bytes.Reader
-	if body != nil {
-		rdr = bytes.NewReader(body)
-	} else {
-		rdr = bytes.NewReader(nil)
-	}
-	req, err := http.NewRequest(method, base+path, rdr)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", version.UserAgent())
-
-	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	data := make([]byte, 0, 4096)
-	buf := make([]byte, 4096)
-	for {
-		n, err := resp.Body.Read(buf)
-		data = append(data, buf[:n]...)
-		if err != nil {
-			break
-		}
-	}
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
-	}
-	return data, nil
+	return inbox.NewClient(base, token), nil
 }

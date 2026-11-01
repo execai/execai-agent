@@ -231,7 +231,7 @@ Tipp: Enter — senden, Shift+Enter — Zeilenumbruch.`,
 
 	// === /project — привязка каталога к проекту ===
 	"hint.project":              "dieses Verzeichnis mit einem Projekt aus dem Web-Chat verbinden",
-	"project.usage":             "/project — Projektliste · bind <Name> — dieses Verzeichnis verbinden · unbind — trennen · on/off — Agent im Projekt aktivieren/deaktivieren",
+	"project.usage":             "/project — Projektliste · bind <Name> — dieses Verzeichnis verbinden · publish [Name] — aus diesem Verzeichnis ein Web-Chat-Projekt machen · unbind — trennen · on/off — Agent im Projekt aktivieren/deaktivieren",
 	"project.listHeader":        "Deine Projekte (● mit diesem Verzeichnis verbunden, ○ anderswo verbunden):",
 	"project.listHint":          "Verbinden: /project bind <Name>",
 	"project.none":              "Noch keine Projekte — lege eines im Web-Chat an.",

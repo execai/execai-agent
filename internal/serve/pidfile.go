@@ -14,118 +14,48 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"runtime"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
+
+	"github.com/velesbsdllc/agent-vbai/internal/i18n"
+	"github.com/velesbsdllc/agent-vbai/internal/inbox"
 )
 
-// pidState — что записано в pid-файле.
-type pidState struct {
-	PID     int
-	Started time.Time
-	APIBase string
-}
+// The lock itself (format, atomic creation, liveness) lives in
+// internal/inbox: the editor panel (`execai ide`) owns the same inbox through
+// the same file. Here — the daemon's side: its messages, --status, --stop.
 
-func pidPath() (string, error) {
-	base, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Join(base, "execai")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "serve.pid"), nil
-}
+// pidState — что записано в pid-файле.
+type pidState = inbox.Owner
+
+func pidPath() (string, error) { return inbox.LockPath() }
 
 // readPidFile читает состояние. Отсутствие файла — не ошибка, а «не запущен».
-func readPidFile() (*pidState, error) {
-	p, err := pidPath()
-	if err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(p)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	// Формат: <pid> <unix-время старта> <api base>
-	f := strings.Fields(strings.TrimSpace(string(data)))
-	if len(f) < 1 {
-		return nil, nil // мусор в файле трактуем как «не запущен»
-	}
-	pid, err := strconv.Atoi(f[0])
-	if err != nil {
-		return nil, nil
-	}
-	st := &pidState{PID: pid}
-	if len(f) > 1 {
-		if sec, err := strconv.ParseInt(f[1], 10, 64); err == nil {
-			st.Started = time.Unix(sec, 0)
-		}
-	}
-	if len(f) > 2 {
-		st.APIBase = f[2]
-	}
-	return st, nil
-}
+func readPidFile() (*pidState, error) { return inbox.ReadOwner() }
 
-func writePidFile(apiBase string) error {
-	p, err := pidPath()
-	if err != nil {
-		return err
-	}
-	line := fmt.Sprintf("%d %d %s\n", os.Getpid(), time.Now().Unix(), apiBase)
-	return os.WriteFile(p, []byte(line), 0o600)
-}
+func writePidFile(apiBase string) error { return inbox.WriteOwner(inbox.KindServe, apiBase, "") }
 
-func removePidFile() {
-	if p, err := pidPath(); err == nil {
-		_ = os.Remove(p)
-	}
-}
+func removePidFile() { inbox.RemoveLock() }
 
 // processAlive — жив ли процесс с таким pid.
-//
-// На Unix os.FindProcess успешен всегда, поэтому проверяем сигналом 0.
-// На Windows FindProcess сам возвращает ошибку для мёртвого процесса.
-func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	if runtime.GOOS == "windows" {
-		return true
-	}
-	return p.Signal(syscall.Signal(0)) == nil
-}
+func processAlive(pid int) bool { return inbox.ProcessAlive(pid) }
 
-// acquireLock занимает pid-файл. Возвращает ошибку, если демон уже работает.
-// Освобождать — вызовом release.
+// acquireLock takes the inbox for the daemon. It fails when a live process
+// holds it — another daemon or an editor window. Free it with release.
 func acquireLock(apiBase string) (release func(), err error) {
-	st, err := readPidFile()
-	if err != nil {
-		return nil, err
-	}
-	if st != nil && processAlive(st.PID) {
+	release, err = inbox.Acquire(inbox.KindServe, apiBase, "")
+	var locked *inbox.LockedError
+	if errors.As(err, &locked) {
+		if locked.Owner.Kind == inbox.KindIDE {
+			// An editor window accepts the tasks itself; a second owner
+			// would split the stream with it.
+			return nil, errors.New(i18n.Tf("inbox.lock.heldByIDE", locked.Owner.PID, locked.Owner.Cwd))
+		}
 		return nil, fmt.Errorf("демон уже запущен (pid %d, с %s). "+
 			"Остановить: execai serve --stop · Проверить: execai serve --status",
-			st.PID, st.Started.Format("15:04:05"))
+			locked.Owner.PID, locked.Owner.Started.Format("15:04:05"))
 	}
-	// Файл остался от убитого процесса — перезаписываем молча, это норма
-	// после kill -9 или перезагрузки.
-	if err := writePidFile(apiBase); err != nil {
-		return nil, err
-	}
-	return removePidFile, nil
+	return release, err
 }
 
 // isDetached — отвязан ли процесс от терминала. Если stdout не TTY (перенаправлен
@@ -152,6 +82,11 @@ func Status() (bool, error) {
 		} else {
 			fmt.Println("не запущен")
 		}
+		return false, nil
+	}
+	if st.Kind == inbox.KindIDE {
+		// An editor window holds the inbox: no daemon, yet tasks are taken.
+		fmt.Println(i18n.Tf("inbox.serve.statusIDE", st.PID, st.Cwd))
 		return false, nil
 	}
 	fmt.Printf("запущен · pid %d · с %s", st.PID, st.Started.Format("2006-01-02 15:04:05"))
@@ -190,6 +125,11 @@ func Stop(wait time.Duration, force bool) error {
 		removePidFile()
 		fmt.Println("демон не запущен")
 		return nil
+	}
+	if st.Kind == inbox.KindIDE {
+		// Not a daemon but an editor window's agent: a signal would kill
+		// its chats.
+		return errors.New(i18n.Tf("inbox.serve.stopIDE", st.PID, st.Cwd))
 	}
 	p, err := os.FindProcess(st.PID)
 	if err != nil {
@@ -237,13 +177,4 @@ func Stop(wait time.Duration, force bool) error {
 }
 
 // waitGone ждёт исчезновения процесса, возвращает false по истечении срока.
-func waitGone(pid int, d time.Duration) bool {
-	deadline := time.Now().Add(d)
-	for time.Now().Before(deadline) {
-		if !processAlive(pid) {
-			return true
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	return !processAlive(pid)
-}
+func waitGone(pid int, d time.Duration) bool { return inbox.WaitGone(pid, d) }

@@ -29,12 +29,15 @@ import (
 	"github.com/velesbsdllc/agent-vbai/internal/auth"
 	"github.com/velesbsdllc/agent-vbai/internal/compact"
 	"github.com/velesbsdllc/agent-vbai/internal/config"
+	"github.com/velesbsdllc/agent-vbai/internal/fleet"
 	"github.com/velesbsdllc/agent-vbai/internal/i18n"
 	"github.com/velesbsdllc/agent-vbai/internal/llm"
 	"github.com/velesbsdllc/agent-vbai/internal/plan"
 	"github.com/velesbsdllc/agent-vbai/internal/security"
 	"github.com/velesbsdllc/agent-vbai/internal/sessions"
+	"github.com/velesbsdllc/agent-vbai/internal/subagent"
 	"github.com/velesbsdllc/agent-vbai/internal/subscriptions"
+	agentsync "github.com/velesbsdllc/agent-vbai/internal/sync"
 	"github.com/velesbsdllc/agent-vbai/internal/tools"
 	"github.com/velesbsdllc/agent-vbai/internal/welcome"
 )
@@ -65,10 +68,12 @@ var (
 type agentTextMsg string
 type agentReasoningMsg string
 type agentToolCallMsg struct {
+	key  string // the call's key in the turn (agent.ToolCallStreamer)
 	name string
 	args json.RawMessage
 }
 type agentToolResultMsg struct {
+	key    string
 	name   string
 	result string
 	err    error
@@ -88,6 +93,7 @@ type agentApproveAskMsg struct {
 	args    json.RawMessage
 	summary string
 	reply   chan agent.ApproveDecision
+	agent   string // the title of the subagent asking; "" — the main agent
 }
 
 // agentAskChoiceMsg — the AskUser tool asks the user to pick an option.
@@ -222,6 +228,26 @@ type tuiModel struct {
 	// model is called. planWarned — the refusal was already shown once.
 	plan       *plan.Checker
 	planWarned bool
+
+	// Sync between computers (sync_command.go). syncFlow — the /sync
+	// conversation waiting for an answer, syncStep — its current question,
+	// syncBusy — a step is running off the UI loop.
+	syncSvc  *agentsync.Service
+	syncFlow agentsync.Flow
+	syncStep agentsync.Step
+	syncBusy bool
+	// syncReloadSubs — the conversation is a key import: re-read
+	// subscriptions.json when it ends.
+	syncReloadSubs bool
+
+	// Subagents (agents.go): the process registry and runner manager, the
+	// latest snapshot for the block and the counter, the titles of Task
+	// cards in flight, and who asks in the open permission dialog.
+	fleet        *fleet.Fleet
+	agents       *subagent.Manager
+	fleetRecs    []fleet.Record
+	taskCards    map[string]string
+	approveAgent string
 }
 
 // loopTickMsg — tick event for /loop.
@@ -362,8 +388,7 @@ func RunTUI(_ context.Context, cfg *config.Config, ver string) error {
 			return "", ctx.Err()
 		}
 	})
-	// Task: subagents run in-process with a read-only toolset.
-	tools.SetSubagentRunner(m.runSubagent)
+	// Task: each turn installs its own subagent runner (startAgent).
 	// No-login boot: not logged in to ExecAI, but an external subscription is
 	// active (kimi/zai/openai/…) — skip the login screen entirely and start
 	// the chat on that subscription. Own sources need neither a login nor an
@@ -423,7 +448,15 @@ func RunTUI(_ context.Context, cfg *config.Config, ver string) error {
 		p = tea.NewProgram(m)
 	}
 	teaProgramRef = p
+	// Subagents: the registry feeds the agents block and the server.
+	stopFleet := m.startFleet(cwd)
+	// Sync between computers: a pull now, then in the background; what is
+	// left is sent on exit. Started after teaProgramRef, so its messages
+	// reach the chat.
+	stopSync := m.startBackgroundSync()
 	_, err := p.Run()
+	stopFleet()
+	stopSync()
 	return err
 }
 
@@ -474,6 +507,9 @@ type autoStartLoginMsg struct{}
 
 func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if cmd, ok := m.updatePlan(msg); ok {
+		return m, cmd
+	}
+	if cmd, ok := m.updateSync(msg); ok {
 		return m, cmd
 	}
 	switch msg := msg.(type) {
@@ -643,6 +679,12 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cancel()
 				}
 				m.statusMessage = i18n.T("stream.interrupted")
+				// Stopping the turn stops its subagents, background ones too.
+				if m.agents != nil && m.session != nil {
+					if n := m.agents.CancelParent(m.session.ID); n > 0 {
+						m.statusMessage += " · " + i18n.Tf("fleet.tui.stoppedChildren", n)
+					}
+				}
 				return m, nil
 			}
 			// Not streaming — require confirmation: second Ctrl+C within 2s.
@@ -737,6 +779,10 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case tea.KeyEsc:
+			if m.syncFlow != nil {
+				m.cancelSyncFlow()
+				return m, nil
+			}
 			if m.customWiz != nil {
 				m.cancelCustomWizard()
 				return m, nil
@@ -786,6 +832,18 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.streaming {
 				return m, pendingCmd
+			}
+			// A /sync question takes the raw line first: a password must not
+			// land in the input history, and pasted markers are expanded
+			// (and forgotten) by syncAnswer itself.
+			if m.syncFlow != nil {
+				if m.syncBusy {
+					return m, pendingCmd
+				}
+				raw := m.textarea.Value()
+				m.textarea.Reset()
+				sub, subCmd := m.syncAnswer(raw)
+				return sub, tea.Batch(pendingCmd, subCmd)
 			}
 			line := strings.TrimSpace(m.textarea.Value())
 			// The /connect custom questions take the line before anything else:
@@ -838,6 +896,24 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 
+	case fleetMsg:
+		m.fleetRecs = msg.recs
+		return m, nil
+
+	case subagentDoneMsg:
+		return m.onSubagentDone(msg)
+
+	case agentApproveCancelMsg:
+		if m.approving && m.approveReplyCh == msg.reply {
+			m.approving = false
+			m.approveTool = ""
+			m.approveSummary = ""
+			m.approveReplyCh = nil
+			m.approveAgent = ""
+			m.statusMessage = i18n.T("ui.approve.denied")
+		}
+		return m, nil
+
 	case agentToolCallMsg:
 		// Finalize the accumulated assistant text as a segment
 		if m.streamBuf.Len() > 0 {
@@ -850,6 +926,17 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		body := summaryForArgs(msg.name, msg.args)
 		m.uiSegments = append(m.uiSegments, segment{kind: "tool_call", tool: msg.name, body: body})
+		if msg.name == "Task" {
+			// Subagents run in parallel and stream nothing here: their
+			// progress is in the agents block. Remember the card's title
+			// for its result line.
+			if m.taskCards == nil {
+				m.taskCards = map[string]string{}
+			}
+			m.taskCards[msg.key] = taskTitle(msg.args)
+			m.refreshViewport()
+			return m, nil
+		}
 		// Reset the live buffer for the new tool call
 		m.toolBuf.Reset()
 		m.toolName = msg.name
@@ -863,6 +950,12 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case agentToolResultMsg:
+		if title, ok := m.taskCards[msg.key]; ok && msg.name == "Task" {
+			delete(m.taskCards, msg.key)
+			m.uiSegments = append(m.uiSegments, segment{kind: "system_hint", body: taskCardResult(title, msg.result, msg.err)})
+			m.refreshViewport()
+			return m, nil
+		}
 		body := msg.result
 		if msg.err != nil {
 			body = "ERROR: " + msg.err.Error()
@@ -1077,6 +1170,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.approveTool = msg.name
 		m.approveSummary = msg.summary
 		m.approveReplyCh = msg.reply
+		m.approveAgent = msg.agent
 		m.approveFocus = 0 // default — "Once"
 		m.refreshViewport()
 		return m, nil
@@ -1354,6 +1448,9 @@ var allCommands = []suggestItem{
 	{insert: "/lang ", label: "/lang", hint: "hint.lang"},
 	{insert: "/paste", label: "/paste", hint: "hint.paste"},
 	{insert: "/cd ", label: "/cd", hint: "hint.cd"},
+	{insert: "/agents", label: "/agents", hint: "hint.agents"},
+	{insert: "/agents open ", label: "/agents open", hint: "hint.agents"},
+	{insert: "/agents stop ", label: "/agents stop", hint: "hint.agents"},
 	{insert: "/sessions", label: "/sessions", hint: "hint.sessions"},
 	{insert: "/resume ", label: "/resume", hint: "hint.resume"},
 	{insert: "/new", label: "/new", hint: "hint.new"},
@@ -1361,9 +1458,15 @@ var allCommands = []suggestItem{
 	{insert: "/whoami", label: "/whoami", hint: "hint.whoami"},
 	{insert: "/config", label: "/config", hint: "hint.config"},
 	{insert: "/key", label: "/key", hint: "hint.key"},
+	{insert: "/sync", label: "/sync", hint: "hint.sync"},
+	{insert: "/sync on", label: "/sync on", hint: "sync.cmd.on"},
+	{insert: "/sync now", label: "/sync now", hint: "sync.cmd.now"},
+	{insert: "/sync keys export", label: "/sync keys export", hint: "sync.cmd.keysExport"},
+	{insert: "/sync keys import", label: "/sync keys import", hint: "sync.cmd.keysImport"},
 	{insert: "/memory", label: "/memory", hint: "hint.memory"},
 	{insert: "/memory find ", label: "/memory find", hint: "hint.memoryFind"},
 	{insert: "/project", label: "/project", hint: "hint.project"},
+	{insert: "/project publish", label: "/project publish", hint: "hint.projectPublish"},
 	{insert: "/permissions", label: "/permissions", hint: "hint.permissions"},
 	{insert: "/login", label: "/login", hint: "hint.login"},
 	{insert: "/logout", label: "/logout", hint: "hint.logout"},
@@ -1625,6 +1728,11 @@ func (m *tuiModel) handleCommand(line string) (tea.Model, tea.Cmd) {
 		m.statusMessage = i18n.T("sys.historyCleared")
 		m.refreshViewport()
 		return m, nil
+	case cmd == "/agents" || strings.HasPrefix(cmd, "/agents "):
+		out := m.agentsCommand(strings.TrimSpace(strings.TrimPrefix(cmd, "/agents")))
+		m.uiSegments = append(m.uiSegments, segment{kind: "system_hint", body: out})
+		m.refreshViewport()
+		return m, nil
 	case cmd == "/help" || cmd == "/?":
 		m.uiSegments = append(m.uiSegments, segment{kind: "system_hint", body: i18n.T("help.body")})
 		m.refreshViewport()
@@ -1695,6 +1803,8 @@ func (m *tuiModel) handleCommand(line string) (tea.Model, tea.Cmd) {
 		m.uiSegments = append(m.uiSegments, segment{kind: "system_hint", body: m.handleKeyCommand(cmd)})
 		m.refreshViewport()
 		return m, nil
+	case cmd == "/sync" || strings.HasPrefix(cmd, "/sync "):
+		return m, m.handleSyncCommand(cmd)
 	case cmd == "/config":
 		dir, _ := config.Dir()
 		body := fmt.Sprintf("config dir       : %s\napi_base         : %s\nselected_model   : %s",
@@ -2213,6 +2323,15 @@ func (m *tuiModel) startAgent(userMessage string) tea.Cmd {
 	a := agent.New(m.cli, m.registry, m.system, ap, st)
 	a.MaxIterations = m.cfg.GetMaxIterations()
 
+	// Subagents of this turn inherit a snapshot of it: a /use in the middle
+	// of the turn does not reach them.
+	if m.session == nil {
+		m.session = sessions.New(m.current.ID, m.current.Provider, getCWDForBoot())
+	}
+	if m.agents != nil {
+		ctx = tools.WithSubagentRunner(ctx, m.agents.Runner(m.subagentDeps(ap)))
+	}
+
 	hist := append([]llm.AIMessage(nil), m.history...)
 	gate := m.planGate()
 
@@ -2287,6 +2406,7 @@ func (m *tuiModel) replyApprove(d agent.ApproveDecision) {
 	m.approveTool = ""
 	m.approveSummary = ""
 	m.approveReplyCh = nil
+	m.approveAgent = ""
 	switch d {
 	case agent.ApproveDeny:
 		m.statusMessage = i18n.T("ui.approve.denied")
@@ -2546,6 +2666,9 @@ func (m *tuiModel) View() string {
 		// Датчик окна: человек видит, когда близко автосжатие, а не удивляется ему.
 		items = append(items, statusKV(i18n.T("status.ctx"), fmt.Sprintf(" %d%% ", m.ctxPct)))
 	}
+	if a := m.agentsStatus(); a != "" {
+		items = append(items, statusKV(i18n.T("status.agents"), " "+a+" "))
+	}
 	items = append(items,
 		statusKV(i18n.T("status.user"), " "+userLabel+" "),
 		statusKV(i18n.T("status.cwd"), " "+m.cwd+" "),
@@ -2609,7 +2732,7 @@ func (m *tuiModel) View() string {
 	parts := []string{
 		header,
 		liveArea,
-		bottom.String() + suggestPanel + m.textarea.View(),
+		m.renderAgentsBlock() + bottom.String() + suggestPanel + m.inputView(),
 		status,
 	}
 	if thinkingSlider != "" {
@@ -2844,6 +2967,11 @@ func (m *tuiModel) renderApproveBlock() string {
 
 	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFD75F")).
 		Render(i18n.Tf("approve.title", m.approveTool))
+	if m.approveAgent != "" {
+		// A subagent asks: the person must know whose action this is.
+		title = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#5FAFFF")).
+			Render(i18n.Tf("fleet.tui.approveAgent", m.approveAgent)) + "\n" + title
+	}
 
 	body := m.approveSummary
 	if len(body) > m.width*8 {
@@ -3042,6 +3170,11 @@ func summaryForArgs(name string, args json.RawMessage) string {
 		if pat, _ := generic["pattern"].(string); pat != "" {
 			return "Grep " + pat
 		}
+	case "Task":
+		// The subagent's title, not its whole prompt as raw JSON.
+		if d, _ := generic["description"].(string); strings.TrimSpace(d) != "" {
+			return agent.TaskCardTitle(generic)
+		}
 	}
 	raw, _ := json.Marshal(generic)
 	return string(raw)
@@ -3178,6 +3311,20 @@ func (s *tuiStreamer) OnToolResult(name, result string, err error) {
 }
 func (s *tuiStreamer) OnIterationStart(int) {}
 
+// OnToolStart/OnToolEnd (agent.ToolCallStreamer): every card carries its
+// call's key, so parallel Task results land under the right title.
+func (s *tuiStreamer) OnToolStart(key, name string, args json.RawMessage) {
+	if s.prog != nil {
+		s.prog.Send(agentToolCallMsg{key: key, name: name, args: args})
+	}
+}
+
+func (s *tuiStreamer) OnToolEnd(key, name, result string, err error) {
+	if s.prog != nil {
+		s.prog.Send(agentToolResultMsg{key: key, name: name, result: result, err: err})
+	}
+}
+
 type tuiApprover struct{ prog *tea.Program }
 
 func (a *tuiApprover) AskApprove(name string, args json.RawMessage, summary string) agent.ApproveDecision {
@@ -3185,6 +3332,9 @@ func (a *tuiApprover) AskApprove(name string, args json.RawMessage, summary stri
 	if a.prog == nil {
 		return agent.ApproveDeny
 	}
+	// One question on screen at a time (subagents may be asking too).
+	tuiAskSem <- struct{}{}
+	defer func() { <-tuiAskSem }()
 	a.prog.Send(agentApproveAskMsg{name: name, args: args, summary: summary, reply: reply})
 	return <-reply
 }

@@ -3,11 +3,11 @@
 // = one persistent Session per user.
 //
 // Source priority:
-//   1. machineid.ProtectedID("execai") — reads /etc/machine-id (Linux),
-//      IOPlatformUUID (macOS), the registry MachineGuid (Windows). Cross-platform.
-//   2. Fallback: a UUID generated once and stored in ~/.config/execai/host_id
-//      (for cases where machine-id is unavailable: docker without --host-ipc,
-//      Windows Sandbox, restricted permissions).
+//  1. machineid.ProtectedID("execai") — reads /etc/machine-id (Linux),
+//     IOPlatformUUID (macOS), the registry MachineGuid (Windows). Cross-platform.
+//  2. Fallback: a UUID generated once and stored in ~/.config/execai/host_id
+//     (for cases where machine-id is unavailable: docker without --host-ipc,
+//     Windows Sandbox, restricted permissions).
 //
 // ProtectedID returns HMAC(machine-id, "execai") — the real machine-id does
 // not leak into backend logs, yet stays stable for our use case.

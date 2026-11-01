@@ -15,12 +15,10 @@
 package serve
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -29,30 +27,20 @@ import (
 	"github.com/velesbsdllc/agent-vbai/internal/agent"
 	"github.com/velesbsdllc/agent-vbai/internal/auth"
 	"github.com/velesbsdllc/agent-vbai/internal/config"
+	"github.com/velesbsdllc/agent-vbai/internal/fleet"
 	"github.com/velesbsdllc/agent-vbai/internal/i18n"
+	"github.com/velesbsdllc/agent-vbai/internal/inbox"
 	"github.com/velesbsdllc/agent-vbai/internal/llm"
 	"github.com/velesbsdllc/agent-vbai/internal/llmpick"
 	"github.com/velesbsdllc/agent-vbai/internal/plan"
+	"github.com/velesbsdllc/agent-vbai/internal/subagent"
 	"github.com/velesbsdllc/agent-vbai/internal/subscriptions"
 	"github.com/velesbsdllc/agent-vbai/internal/tools"
-	"github.com/velesbsdllc/agent-vbai/internal/version"
 )
 
-// Task — задача из инбокса.
-type Task struct {
-	ID          string `json:"id"`
-	WorkspaceID string `json:"workspace_id"`
-	Payload     string `json:"payload"`
-}
-
-type inboxResponse struct {
-	Tasks []Task `json:"tasks"`
-}
-
-type binding struct {
-	WorkspaceID string `json:"workspace_id"`
-	LocalPath   string `json:"local_path"`
-}
+// Task is a task from the inbox (the shared type of the "web → agent"
+// channel, see internal/inbox).
+type Task = inbox.Task
 
 // Options — параметры фонового режима.
 type Options struct {
@@ -72,8 +60,8 @@ type Options struct {
 // DefaultOptions — разумные значения.
 func DefaultOptions() Options {
 	return Options{
-		PollWait:    60 * time.Second,
-		TaskTimeout: 5 * time.Minute,
+		PollWait:    inbox.PollWait,
+		TaskTimeout: inbox.TaskTimeout,
 		// 0 — взять из конфига (/max-iterations). Своё число тут означало бы,
 		// что локальная настройка человека в фоне игнорируется.
 		MaxIterations: 0,
@@ -142,6 +130,13 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 		fmt.Println(i18n.T("plan.serve.startWarn"))
 		fmt.Println(v.Message())
 	}
+	// Tasks from the site come with the Work and Max plans, whatever model
+	// runs them. Without one every task is answered with the refusal; say so
+	// now, not after the first task.
+	if !inbox.Allowed(ctx, gate, inbox.Background()) {
+		fmt.Println(i18n.T("inbox.plan.serveWarn"))
+		fmt.Println(inbox.PlanRefusal())
+	}
 	// Самая частая жалоба на фоновый режим — «закрыл терминал, агент умер».
 	// Процесс привязан к сессии, и подсказать про это дешевле, чем городить
 	// собственную демонизацию.
@@ -149,6 +144,19 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 		fmt.Println("Подсказка: терминал закроется — агент остановится. Чтобы пережил:")
 		fmt.Println("  setsid nohup execai serve > ~/.execai-serve.log 2>&1 &")
 	}
+
+	// Subagents of tasks: one manager for the daemon; their records go to
+	// the machine's card in the web panel. On exit everything still
+	// running ends "cancelled" and the last report is sent.
+	agentFleet := fleet.New()
+	agents := subagent.NewManager(agentFleet)
+	daemonCwd, _ := os.Getwd()
+	agentReport := fleet.StartReporter(agentFleet, fleet.HTTPSender(cfg.APIBase, fleet.SavedToken), daemonCwd, 0)
+	defer func() {
+		agents.Shutdown(2 * time.Second)
+		agentReport.Close()
+		agentFleet.Close()
+	}()
 
 	// Ошибки сети не должны крутить цикл вхолостую на полной скорости.
 	backoff := time.Second
@@ -203,7 +211,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 		}
 
 		for _, t := range tasks {
-			runTask(ctx, cfg, cr, t, opts, strict, audit, gate)
+			runTask(ctx, cfg, cr, t, opts, strict, audit, gate, agents)
 		}
 	}
 }
@@ -211,35 +219,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 // ackTasks подтверждает получение и возвращает только реально закреплённые
 // за нами задачи.
 func ackTasks(ctx context.Context, cfg *config.Config, token string, tasks []Task) ([]Task, error) {
-	if len(tasks) == 0 {
-		return nil, nil
-	}
-	ids := make([]string, 0, len(tasks))
-	for _, t := range tasks {
-		ids = append(ids, t.ID)
-	}
-	body, _ := json.Marshal(map[string]any{"task_ids": ids})
-	data, err := apiRequest(ctx, cfg, token, http.MethodPost, "/agents-vbai/inbox/ack", body)
-	if err != nil {
-		return nil, err
-	}
-	var resp struct {
-		Acked []string `json:"acked"`
-	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("не разобрать ответ ack: %w", err)
-	}
-	ackedSet := map[string]bool{}
-	for _, id := range resp.Acked {
-		ackedSet[id] = true
-	}
-	out := make([]Task, 0, len(tasks))
-	for _, t := range tasks {
-		if ackedSet[t.ID] {
-			out = append(out, t)
-		}
-	}
-	return out, nil
+	return inbox.NewClient(cfg.APIBase, token).Ack(ctx, tasks)
 }
 
 func displayName(cr *config.Credentials) string {
@@ -251,7 +231,7 @@ func displayName(cr *config.Credentials) string {
 
 // runTask выполняет одну задачу и отправляет результат.
 func runTask(ctx context.Context, cfg *config.Config, cr *config.Credentials, t Task, opts Options,
-	strict bool, audit *auditLog, gate *plan.Checker) {
+	strict bool, audit *auditLog, gate *plan.Checker, agents *subagent.Manager) {
 	prompt := extractPrompt(t.Payload)
 	if prompt == "" {
 		postResult(ctx, cfg, cr.Token, t.ID, "error", "пустая задача")
@@ -259,6 +239,9 @@ func runTask(ctx context.Context, cfg *config.Config, cr *config.Credentials, t 
 	}
 	fmt.Printf("\n▶ задача %s: %s\n", short(t.ID), firstLine(prompt))
 	audit.setTask(t.ID)
+	if !boardTask(ctx, cfg, cr.Token, t, gate) {
+		return
+	}
 	if !gateTask(ctx, cfg, cr.Token, t, gate) {
 		return
 	}
@@ -273,7 +256,7 @@ func runTask(ctx context.Context, cfg *config.Config, cr *config.Credentials, t 
 		return
 	}
 
-	out, err := execute(ctx, cfg, cr, prompt, cwd, t.ID, opts, strict, audit)
+	out, err := execute(ctx, cfg, cr, prompt, cwd, t.ID, opts, strict, audit, agents)
 	if err != nil {
 		if errors.Is(err, llm.ErrPaymentRequired) && gate != nil {
 			gate.RefreshAsync() // the plan has most likely just ended
@@ -284,6 +267,18 @@ func runTask(ctx context.Context, cfg *config.Config, cr *config.Credentials, t 
 	}
 	postResult(ctx, cfg, cr.Token, t.ID, "final", out)
 	fmt.Printf("✓ задача %s выполнена (%d символов)\n", short(t.ID), len([]rune(out)))
+}
+
+// boardTask asks whether the plan includes tasks from the site at all (the
+// Work and Max plans). A refusal is the task's result, as with gateTask.
+func boardTask(ctx context.Context, cfg *config.Config, token string, t Task, gate *plan.Checker) bool {
+	// A task from the site is the person's action: billing may be asked.
+	if gate == nil || inbox.Allowed(ctx, gate, true) {
+		return true
+	}
+	postResult(ctx, cfg, token, t.ID, inbox.ChunkError, inbox.PlanRefusal())
+	fmt.Println(i18n.Tf("inbox.serve.refused", short(t.ID)))
+	return false
 }
 
 // gateTask asks the plan gate before a task reaches the model. A refusal is
@@ -305,22 +300,28 @@ func gateTask(ctx context.Context, cfg *config.Config, token string, t Task, gat
 
 // execute запускает агентный цикл в нужном каталоге.
 func execute(ctx context.Context, cfg *config.Config, cr *config.Credentials,
-	prompt, cwd, taskID string, opts Options, strict bool, audit *auditLog) (string, error) {
+	prompt, cwd, taskID string, opts Options, strict bool, audit *auditLog, agents *subagent.Manager) (string, error) {
 
-	models, err := llm.FetchModels(ctx, cfg.APIBase, cr.Token)
-	if err != nil {
-		return "", fmt.Errorf("не получить список моделей: %w", err)
-	}
-	current := llm.PickDefault(models, cfg.SelectedModelID)
-	if current == nil {
-		return "", fmt.Errorf("не выбрать модель")
-	}
 	// Клиент выбирается ТАК ЖЕ, как в интерактиве: по активной подписке из
 	// subscriptions.json. Иначе задачи из веба шли бы через ExecAI мимо
 	// подписки, которой человек пользуется локально, — другой биллинг и,
 	// возможно, другая модель.
+	//
+	// The model follows the same rules as the terminal and the editor
+	// (llmpick.Model): the selected one when the active source offers it,
+	// otherwise that source's primary model. Before, the selected ExecAI
+	// model ID went to the person's own subscription, and the ExecAI catalog
+	// was fetched (and could fail the task) even when it was not used.
 	subs, _ := subscriptions.Load()
-	cli := llmpick.Client(cfg, subs, current.ID, current.Provider, cr.Token)
+	var execai []llm.Model
+	if subs.ActiveSubscription() == nil {
+		execai = llm.FetchModelsCached(cfg.APIBase, cr.Token).Models
+	}
+	modelID, provider := llmpick.Model(cfg.SelectedModelID, subs, execai)
+	if modelID == "" && subs.ActiveSubscription() == nil {
+		return "", fmt.Errorf("не выбрать модель")
+	}
+	cli := llmpick.Client(cfg, subs, modelID, provider, cr.Token)
 
 	registry := tools.Default(cwd)
 	if opts.ReadOnly {
@@ -355,83 +356,62 @@ func execute(ctx context.Context, cfg *config.Config, cr *config.Credentials,
 	ctx, cancel := context.WithTimeout(ctx, opts.TaskTimeout)
 	defer cancel()
 
-	if _, err := a.Run(ctx, nil, prompt); err != nil {
-		// Даже при ошибке отдаём то, что успели: частичный ответ полезнее
-		// голого сообщения об ошибке.
-		if partial := collector.String(); partial != "" {
-			return partial + "\n\n(прервано: " + err.Error() + ")", nil
+	var runner *subagent.Runner
+	if agents != nil {
+		// Subagents of the task: the same client and source, the task's
+		// directory, and the task's approver — a write subagent asks in the
+		// web chat with its title in the question.
+		runner = agents.Runner(subagent.Deps{
+			Client: cli, Source: subs.SourceLabel(), Model: modelID,
+			Picker: llmpick.NewPicker(cfg, subs, execai, cr.Token),
+			Cwd:    cwd, Approver: ap, ParentChat: taskID,
+		})
+		ctx = tools.WithSubagentRunner(ctx, runner)
+	}
+	hist, err := a.Run(ctx, nil, prompt)
+	// Background subagents: the task has no later turn, so the agent waits
+	// for them here and finishes with their results.
+	for runner != nil && err == nil && ctx.Err() == nil {
+		note := runner.Drain(ctx)
+		if note == "" {
+			break
 		}
-		return "", err
+		hist, err = a.Run(ctx, hist, note)
 	}
-	res := collector.String()
-	if strings.TrimSpace(res) == "" {
-		return "(агент отработал, но текстового ответа не дал)", nil
+	if err != nil || ctx.Err() != nil {
+		// The task is over: its subagents go with it.
+		if agents != nil {
+			agents.CancelParent(taskID)
+		}
 	}
-	return res, nil
+	// Even on an error, give what was done: a partial answer beats a bare
+	// error (inbox.Outcome — the same rule as in the editor).
+	chunk, data := inbox.Outcome(collector.String(), err)
+	if chunk == inbox.ChunkError {
+		return "", err // keep the type: runTask tells a 402 apart
+	}
+	return data, nil
 }
 
-// workDirFor находит каталог, привязанный к проекту задачи.
+// workDirFor finds the directory bound to the task's project; a task outside
+// any project runs where the daemon was started.
 func workDirFor(ctx context.Context, cfg *config.Config, token, workspaceID string) (string, error) {
-	if workspaceID == "" {
-		// Задача вне проекта — работаем там, где запущен демон.
-		return os.Getwd()
-	}
-	data, err := apiRequest(ctx, cfg, token, http.MethodGet, "/agents-vbai/workspaces/bindings", nil)
-	if err != nil {
-		return "", fmt.Errorf("не получить привязки проектов: %w", err)
-	}
-	var wrapped struct {
-		Bindings []binding `json:"bindings"`
-	}
-	if err := json.Unmarshal(data, &wrapped); err != nil {
-		return "", fmt.Errorf("не разобрать привязки: %w", err)
-	}
-	for _, b := range wrapped.Bindings {
-		if b.WorkspaceID != workspaceID {
-			continue
-		}
-		if b.LocalPath == "" {
-			return "", fmt.Errorf("для этого проекта не указан каталог — выполни здесь: execai → /project bind")
-		}
-		if st, err := os.Stat(b.LocalPath); err != nil || !st.IsDir() {
-			// Каталог мог переехать. Молча работать в другом месте нельзя.
-			return "", fmt.Errorf("каталог проекта не найден: %s", b.LocalPath)
-		}
-		return b.LocalPath, nil
-	}
-	return "", fmt.Errorf("эта машина не привязана к проекту задачи — выполни: execai → /project bind")
+	cwd, _ := os.Getwd()
+	return inbox.NewClient(cfg.APIBase, token).WorkDirFor(ctx, workspaceID, cwd)
 }
 
 func pollInbox(ctx context.Context, cfg *config.Config, token string, wait time.Duration) ([]Task, error) {
-	path := fmt.Sprintf("/agents-vbai/inbox/poll?wait=%d", int(wait.Seconds()))
-	data, err := apiRequest(ctx, cfg, token, http.MethodPost, path, []byte(`{}`))
-	if err != nil {
-		return nil, err
-	}
-	var resp inboxResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("не разобрать ответ инбокса: %w", err)
-	}
-	return resp.Tasks, nil
+	return inbox.NewClient(cfg.APIBase, token).Poll(ctx, wait, nil)
 }
 
 func postResult(ctx context.Context, cfg *config.Config, token, taskID, chunkType, data string) {
-	body, _ := json.Marshal(map[string]string{"chunk_type": chunkType, "data": data})
-	// Своим контекстом: если основной уже отменён (Ctrl+C), результат всё
-	// равно надо доставить, иначе в чате останется висеть таймаут.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-	defer cancel()
-	if _, err := apiRequest(ctx, cfg, token, http.MethodPost,
-		"/agents-vbai/tasks/"+taskID+"/result", body); err != nil {
+	if err := inbox.NewClient(cfg.APIBase, token).PostResult(ctx, taskID, chunkType, data); err != nil {
 		fmt.Fprintf(os.Stderr, "не удалось отправить результат задачи %s: %v\n", short(taskID), err)
 	}
 }
 
 // isUnauthorized — является ли ошибка ответом HTTP 401.
-func isUnauthorized(err error) bool {
-	var he *httpError
-	return errors.As(err, &he) && he.status == http.StatusUnauthorized
-}
+func isUnauthorized(err error) bool { return inbox.IsUnauthorized(err) }
 
 // reloadCredentials перечитывает credentials.json и возвращает true, если на
 // диске лежит другой токен. Обновляет cr на месте: указатель на эти креды
@@ -445,78 +425,12 @@ func reloadCredentials(cr *config.Credentials) bool {
 	return true
 }
 
-// trimBase — база API без хвостового слэша.
-func trimBase(base string) string { return strings.TrimRight(base, "/") }
-
-func apiRequest(ctx context.Context, cfg *config.Config, token, method, path string, body []byte) ([]byte, error) {
-	base := strings.TrimRight(cfg.APIBase, "/")
-	var rdr *bytes.Reader
-	if body != nil {
-		rdr = bytes.NewReader(body)
-	} else {
-		rdr = bytes.NewReader(nil)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, base+path, rdr)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", version.UserAgent())
-
-	// Таймаут клиента должен превышать long-poll, иначе он рвал бы каждый
-	// нормальный запрос к инбоксу.
-	resp, err := (&http.Client{Timeout: 3 * time.Minute}).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	buf := new(bytes.Buffer)
-	_, _ = buf.ReadFrom(resp.Body)
-	if resp.StatusCode >= 400 {
-		return nil, &httpError{status: resp.StatusCode, body: strings.TrimSpace(buf.String())}
-	}
-	return buf.Bytes(), nil
-}
-
-// httpError сохраняет статус ответа: по строке ошибки статус не различить,
-// а реакция на 401 (перечитать креды) отличается от реакции на 5xx (ждать).
-type httpError struct {
-	status int
-	body   string
-}
-
-func (e *httpError) Error() string { return fmt.Sprintf("HTTP %d: %s", e.status, e.body) }
-
 // extractPrompt достаёт текст задачи из payload.
-func extractPrompt(payload string) string {
-	var p struct {
-		Prompt string `json:"prompt"`
-	}
-	if err := json.Unmarshal([]byte(payload), &p); err != nil {
-		// payload мог прийти голой строкой — это тоже задача.
-		return strings.TrimSpace(payload)
-	}
-	return strings.TrimSpace(p.Prompt)
-}
+func extractPrompt(payload string) string { return inbox.ExtractPrompt(payload) }
 
-func short(id string) string {
-	if len(id) > 8 {
-		return id[:8]
-	}
-	return id
-}
+func short(id string) string { return inbox.Short(id) }
 
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
-	}
-	r := []rune(s)
-	if len(r) > 80 {
-		return string(r[:80]) + "…"
-	}
-	return string(r)
-}
+func firstLine(s string) string { return inbox.FirstLine(s) }
 
 // textCollector собирает текст ответа и показывает ход работы в консоли
 // демона — иначе непонятно, жив ли он и чем занят.

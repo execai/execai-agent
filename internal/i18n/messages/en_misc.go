@@ -232,7 +232,7 @@ Tip: Enter — send, Shift+Enter — new line.`,
 
 	// === /project — привязка каталога к проекту ===
 	"hint.project":              "bind this directory to a project from the web chat",
-	"project.usage":             "/project — list projects · bind <name> — bind this directory · unbind — unbind · on/off — enable/disable the agent in the project",
+	"project.usage":             "/project — list projects · bind <name> — bind this directory · publish [name] — make a web chat project from this directory · unbind — unbind · on/off — enable/disable the agent in the project",
 	"project.listHeader":        "Your projects (● bound to this directory, ○ bound elsewhere):",
 	"project.listHint":          "Bind: /project bind <name>",
 	"project.none":              "You have no projects yet — create one in the web chat.",

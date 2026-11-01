@@ -231,7 +231,7 @@ Consejo: Enter — enviar, Shift+Enter — nueva línea.`,
 
 	// === /project — привязка каталога к проекту ===
 	"hint.project":              "vincular este directorio a un proyecto del chat web",
-	"project.usage":             "/project — lista de proyectos · bind <nombre> — vincular este directorio · unbind — desvincular · on/off — activar/desactivar el agente en el proyecto",
+	"project.usage":             "/project — lista de proyectos · bind <nombre> — vincular este directorio · publish [nombre] — crear un proyecto del chat web con este directorio · unbind — desvincular · on/off — activar/desactivar el agente en el proyecto",
 	"project.listHeader":        "Tus proyectos (● vinculado a este directorio, ○ vinculado en otro sitio):",
 	"project.listHint":          "Vincular: /project bind <nombre>",
 	"project.none":              "Aún no tienes proyectos: créalos en el chat web.",

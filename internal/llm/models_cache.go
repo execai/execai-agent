@@ -27,10 +27,10 @@ import (
 // FetchModelsResult — what we actually managed to obtain + how offline it is.
 type FetchModelsResult struct {
 	Models    []Model
-	FromCache bool      // true = network failed, took the cache
+	FromCache bool          // true = network failed, took the cache
 	CacheAge  time.Duration // how old the cache is
-	Fallback  bool      // true = no cache either, returned the embedded minimum
-	Err       error     // non-nil if the network fetch failed; the agent may display it as a warning
+	Fallback  bool          // true = no cache either, returned the embedded minimum
+	Err       error         // non-nil if the network fetch failed; the agent may display it as a warning
 }
 
 // FetchModelsCached — cache-first bootstrap. Never returns an empty

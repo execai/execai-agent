@@ -102,6 +102,17 @@ func T(key string) string {
 	return key
 }
 
+// Keys returns the keys registered for a locale, for completeness tests.
+func Keys(locale string) []string {
+	mu.RLock()
+	defer mu.RUnlock()
+	out := make([]string, 0, len(catalogs[locale]))
+	for k := range catalogs[locale] {
+		out = append(out, k)
+	}
+	return out
+}
+
 // Tf is like T, but applies fmt.Sprintf to the template.
 func Tf(key string, args ...any) string {
 	return fmt.Sprintf(T(key), args...)

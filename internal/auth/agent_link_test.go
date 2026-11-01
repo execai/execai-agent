@@ -17,13 +17,13 @@ import (
 // mockBackend — fake /auth-vbai/agent-link/start + /poll. The response script
 // is a sequence of statuses, returned one per poll.
 type mockBackend struct {
-	startCalls  int32
-	pollCalls   int32
-	pollStatuses []string // one per call; after the end — stick to the last one
-	linkedJWT   string
-	failEvery   int32 // if >0 — every Nth poll returns 502 (for the resilience test)
+	startCalls     int32
+	pollCalls      int32
+	pollStatuses   []string // one per call; after the end — stick to the last one
+	linkedJWT      string
+	failEvery      int32 // if >0 — every Nth poll returns 502 (for the resilience test)
 	forceExpiresIn int
-	server      *httptest.Server
+	server         *httptest.Server
 }
 
 func newMockBackend(pollScript []string, linkedJWT string) *mockBackend {
@@ -36,10 +36,10 @@ func newMockBackend(pollScript []string, linkedJWT string) *mockBackend {
 			exp = 900
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"user_code":    "TESTCODE",
-			"link_token":   "test-link-token",
-			"verify_uri":   "https://mock/agents/connect/TESTCODE",
-			"expires_in":   exp,
+			"user_code":     "TESTCODE",
+			"link_token":    "test-link-token",
+			"verify_uri":    "https://mock/agents/connect/TESTCODE",
+			"expires_in":    exp,
 			"poll_interval": 1, // 1 sec — faster than prod's 3, so tests do not stall
 		})
 	})
@@ -49,7 +49,7 @@ func newMockBackend(pollScript []string, linkedJWT string) *mockBackend {
 			http.Error(w, "boom", http.StatusBadGateway)
 			return
 		}
-		idx := int(n-1)
+		idx := int(n - 1)
 		if idx >= len(m.pollStatuses) {
 			idx = len(m.pollStatuses) - 1
 		}

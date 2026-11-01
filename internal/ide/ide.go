@@ -31,6 +31,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -43,12 +44,15 @@ import (
 	"github.com/velesbsdllc/agent-vbai/internal/compact"
 	"github.com/velesbsdllc/agent-vbai/internal/config"
 	subsconnect "github.com/velesbsdllc/agent-vbai/internal/connect"
+	"github.com/velesbsdllc/agent-vbai/internal/fleet"
 	"github.com/velesbsdllc/agent-vbai/internal/i18n"
+	"github.com/velesbsdllc/agent-vbai/internal/inbox"
 	"github.com/velesbsdllc/agent-vbai/internal/llm"
 	"github.com/velesbsdllc/agent-vbai/internal/llmpick"
 	"github.com/velesbsdllc/agent-vbai/internal/plan"
 	"github.com/velesbsdllc/agent-vbai/internal/security"
 	"github.com/velesbsdllc/agent-vbai/internal/sessions"
+	"github.com/velesbsdllc/agent-vbai/internal/subagent"
 	"github.com/velesbsdllc/agent-vbai/internal/subscriptions"
 	"github.com/velesbsdllc/agent-vbai/internal/tools"
 	"github.com/velesbsdllc/agent-vbai/internal/version"
@@ -69,8 +73,12 @@ type In struct {
 	Value string `json:"value,omitempty"`
 	// command: name = state | set_model | set_source | set_effort |
 	// set_max_iterations | login | logout | connect | disconnect |
-	// list_chats | load_chat | cancel_wakeup | wake_now; value — аргумент
+	// list_chats | load_chat | cancel_wakeup | wake_now | inbox_take |
+	// bind | unbind | list_workspaces | list_agents | open_agent |
+	// stop_agent; value is the argument
 	Name string `json:"name,omitempty"`
+	// bind: the project to bind this folder to (value works too).
+	WorkspaceID string `json:"workspace_id,omitempty"`
 	// connect: ключ провайдера и (опционально) свой base_url
 	Key     string `json:"key,omitempty"`
 	BaseURL string `json:"base_url,omitempty"`
@@ -84,8 +92,11 @@ type In struct {
 	// cancel_wakeup, wake_now). Пусто — текущий (активный в панели).
 	Chat string `json:"chat,omitempty"`
 
-	// auto — ход запущен самим агентом (пробуждение), а не человеком.
+	// auto — the turn was started by the agent itself (a wake-up, a task
+	// from the site), not by the person.
 	auto bool
+	// task — the turn is a task from the site (internal type web_task).
+	task *webTask
 }
 
 // EditorCtx — что редактор знает о месте, где стоит человек.
@@ -153,6 +164,36 @@ type Out struct {
 	Busy bool `json:"busy,omitempty"`
 	// wakeup / chat_loaded: когда чат проснётся (RFC 3339)
 	At string `json:"at,omitempty"`
+
+	// turn_start / auto_user / chat_loaded: who started the chat — "web" (a
+	// task from the site) or "user".
+	Origin string `json:"origin,omitempty"`
+	// inbox: the inbox state (listening | other_serve | other_ide | no_plan |
+	// disabled | not_logged_in); in the state event the same goes to Inbox.
+	State string `json:"state,omitempty"`
+	Inbox string `json:"inbox,omitempty"`
+	// inbox / state: who owns the inbox when it is not this window.
+	OwnerPID int    `json:"owner_pid,omitempty"`
+	OwnerCwd string `json:"owner_cwd,omitempty"`
+	// inbox / state: the project this folder is bound to; absent — not bound.
+	BoundWorkspace *WorkspaceRef `json:"bound_workspace,omitempty"`
+	// ask_resolved: the question answered elsewhere, and where (web | panel |
+	// cancel).
+	AskID string `json:"ask_id,omitempty"`
+	By    string `json:"by,omitempty"`
+	// workspaces: the account's projects (an empty list is sent as []).
+	Items *[]WorkspaceItem `json:"items,omitempty"`
+
+	// tool_call: the key of the call in the turn; a subagent started by a
+	// Task call carries it as parent_tool_call (see agents.go).
+	CallID string `json:"call_id,omitempty"`
+	// ask: the subagent that asks (absent — the chat's own agent).
+	Agent *AgentRef `json:"agent,omitempty"`
+	// agent_loaded: the subagent's title and transcript (State — its state).
+	Title    string      `json:"title,omitempty"`
+	Messages []ReplayMsg `json:"messages,omitempty"`
+	// agents: the registry snapshot, written as "items" (Out.MarshalJSON).
+	Agents *[]fleet.Record `json:"-"`
 }
 
 // ReplayMsg — одна реплика восстановленного чата (упрощённый вид для UI).
@@ -170,6 +211,8 @@ type NamedItem struct {
 	// chats: ход идёт / запланировано пробуждение (RFC 3339)
 	Busy bool   `json:"busy,omitempty"`
 	Wake string `json:"wake,omitempty"`
+	// chats: "web" — started by a task from the site; "user" — in the panel.
+	Origin string `json:"origin,omitempty"`
 }
 
 // AskOption — вариант ответа. Слово в слово как в TUI и веб-чате: человек
@@ -180,20 +223,31 @@ type AskOption struct {
 	Description string `json:"description,omitempty"`
 }
 
-// Значения ответов на разрешение — общий словарь с веб-каналом
-// (agents-vbai/internal/ask). Незнакомое значение = отказ.
-const (
-	answerOnce    = "once"
-	answerSession = "session"
-	answerExact   = "exact"
-	answerAlways  = "always"
-	answerDeny    = "deny"
-)
+// Permission answers are one vocabulary shared with the web channel
+// (agents-vbai/internal/ask); in the agent it lives in one place,
+// inbox.Answer*. An unknown value means deny.
 
 // Options — параметры запуска.
 type Options struct {
 	Cwd           string
 	MaxIterations int
+	// NoInbox — do not accept tasks from the site in this window (also
+	// EXECAI_IDE_INBOX=off); the panel shows the inbox as disabled.
+	NoInbox bool
+	// In and Out carry the protocol: one JSON message per line. Nil means
+	// os.Stdin / os.Stdout (the editor plugin); execai ui passes a pipe that
+	// stays open while the process lives and a fan-out to browser tabs.
+	In  io.Reader
+	Out io.Writer
+}
+
+// inboxOff — accepting tasks from the site is turned off by the environment.
+func inboxOff() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("EXECAI_IDE_INBOX"))) {
+	case "off", "0", "false", "no":
+		return true
+	}
+	return false
 }
 
 // parallelTurns — сколько чатов могут отвечать одновременно. Больше — не
@@ -226,6 +280,10 @@ type turnDeps struct {
 	// planRoute — where the turn's calls go (plan.RouteOf at turn start).
 	gate      *plan.Checker
 	planRoute plan.Route
+	// source — the source label; picker — the model choice of subagents
+	// ("fast", an ID), from the same snapshot.
+	source string
+	picker *llmpick.Picker
 }
 
 // server — процесс целиком: писатель stdout, вопросы, реестр чатов.
@@ -244,6 +302,12 @@ type server struct {
 	slots chan struct{} // занятые слоты параллельных ходов
 	userQ chan In       // очередь главного цикла (пробуждения кладут сюда)
 	cwd   string
+
+	// taskTimeout — the limit for a task from the site (inbox.TaskTimeout).
+	taskTimeout time.Duration
+
+	// agents runs the chats' subagents (nil in tests that do not need them).
+	agents *subagent.Manager
 }
 
 func newServer(enc *json.Encoder, cwd string) *server {
@@ -252,6 +316,7 @@ func newServer(enc *json.Encoder, cwd string) *server {
 		chats: map[string]*chatSession{},
 		slots: make(chan struct{}, parallelTurns()),
 		userQ: make(chan In, 64), cwd: cwd,
+		taskTimeout: inbox.TaskTimeout,
 	}
 }
 
@@ -269,6 +334,14 @@ func (s *server) newQuestion() (string, chan string) {
 	ch := make(chan string, 1)
 	s.answers[id] = ch
 	return id, ch
+}
+
+// drop forgets a question answered elsewhere: a late answer from the panel
+// then goes nowhere.
+func (s *server) drop(id string) {
+	s.answersMu.Lock()
+	delete(s.answers, id)
+	s.answersMu.Unlock()
 }
 
 func (s *server) deliver(id, value string) {
@@ -307,6 +380,11 @@ type chatSession struct {
 	// firstText — первое сообщение человека, пока чат ещё не сохранён: файл
 	// появляется после первого хода, а вкладка нужна с первой секунды.
 	firstText string
+	// task — the task from the site this chat's current turn is running;
+	// cleared when its result is sent.
+	task *webTask
+	// asks — one permission question of this chat at a time (askSem).
+	asks chan struct{}
 }
 
 type chatKey struct{}
@@ -423,6 +501,7 @@ func (c *chatSession) loadedOut() Out {
 	defer c.mu.Unlock()
 	o := replayOut(c.history)
 	o.Busy = c.busy
+	o.Origin = originOf(c.sess.Origin)
 	if c.sess.WakeAt != nil {
 		o.At = c.sess.WakeAt.Format(time.RFC3339)
 		o.Text = c.sess.WakeReason
@@ -445,7 +524,7 @@ func (c *chatSession) replayLive() {
 	if !busy {
 		return
 	}
-	c.srv.emit(Out{Type: "turn_start", Chat: c.id})
+	c.srv.emit(Out{Type: "turn_start", Chat: c.id, Origin: c.origin()})
 	for _, o := range live {
 		c.srv.emit(o)
 	}
@@ -456,6 +535,13 @@ func (c *chatSession) replayLive() {
 
 // startTurn запускает ход в горутине. Возвращает false, если чат занят.
 func (c *chatSession) startTurn(in In, deps turnDeps) bool {
+	return c.startTurnThen(in, deps, nil)
+}
+
+// startTurnThen is startTurn with a hook that runs once the chat is busy but
+// before the turn emits anything — to announce a new chat (its tab) ahead of
+// its first events.
+func (c *chatSession) startTurnThen(in In, deps turnDeps, before func()) bool {
 	c.mu.Lock()
 	if c.busy {
 		c.mu.Unlock()
@@ -469,9 +555,21 @@ func (c *chatSession) startTurn(in In, deps turnDeps) bool {
 		c.firstText = in.Text
 	}
 	hist := append([]llm.AIMessage(nil), c.history...)
-	ctx, cancel := context.WithCancel(context.Background())
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if in.task != nil {
+		// A task from the site has the same limit as in execai serve: the
+		// web chat must not wait for a stuck turn forever.
+		ctx, cancel = context.WithTimeout(context.Background(), c.srv.taskTimeout)
+		c.task = in.task
+	} else {
+		ctx, cancel = context.WithCancel(context.Background())
+	}
 	c.turnCancel = cancel
 	c.mu.Unlock()
+	if before != nil {
+		before()
+	}
 	go c.runTurn(ctx, cancel, in, deps, hist)
 	return true
 }
@@ -492,10 +590,14 @@ func (c *chatSession) runTurn(ctx context.Context, cancel context.CancelFunc, in
 	defer func() { <-c.srv.slots }()
 
 	start := time.Now()
-	c.emit(Out{Type: "turn_start"})
+	c.emit(Out{Type: "turn_start", Origin: c.origin()})
 	if in.auto {
 		// Человек должен видеть, что ход начал агент сам и с каким промтом.
-		c.emit(Out{Type: "auto_user", Text: in.Text})
+		o := Out{Type: "auto_user", Text: in.Text}
+		if in.task != nil {
+			o.Origin = originWeb // "from the site", not a wake-up
+		}
+		c.emit(o)
 	}
 	// Plan gate: a refusal ends the turn with its text, the model is not called.
 	if deps.gate != nil {
@@ -511,13 +613,42 @@ func (c *chatSession) runTurn(ctx context.Context, cancel context.CancelFunc, in
 		c.mu.Unlock()
 	})
 	st := &streamer{c: c, changed: map[string]bool{}, turnStart: start}
-	a := agent.New(deps.cli, deps.registry, deps.sys, c.ap, st)
+	var ap agent.Approver = c.ap
+	if in.task != nil {
+		// The person who started the task may answer from the site or from
+		// the panel — whichever comes first.
+		ap = newDualApprover(ctx, c.ap, in.task)
+	}
+	a := agent.New(deps.cli, deps.registry, deps.sys, ap, st)
 	a.MaxIterations = deps.maxIter
+	var runner *subagent.Runner
+	if c.srv.agents != nil {
+		// Subagents inherit this turn's snapshot and its approver: a write
+		// subagent asks in this chat (and, for a task from the site, in the
+		// web chat too), marked with its title.
+		runner = c.srv.agents.Runner(subagent.Deps{
+			Client: deps.cli, Source: deps.source, Model: deps.modelID, Picker: deps.picker,
+			Cwd: c.srv.cwd, Approver: ap, ParentChat: c.id, Notify: c.srv.subagentNotify,
+		})
+		ctx = tools.WithSubagentRunner(ctx, runner)
+	}
 	var attached []string
 	if in.Context != nil {
 		attached = in.Context.Files
 	}
 	newHist, err := a.RunWithFiles(ctx, hist, buildPrompt(in), attached)
+	if in.task != nil && runner != nil {
+		// A task from the site has no later turn to receive background
+		// results: wait for them and let the agent finish with them.
+		for err == nil && ctx.Err() == nil {
+			note := runner.Drain(ctx)
+			if note == "" {
+				break
+			}
+			c.emit(Out{Type: "auto_user", Text: note})
+			newHist, err = a.RunWithFiles(ctx, newHist, note, nil)
+		}
+	}
 	if errors.Is(err, llm.ErrPaymentRequired) && deps.gate != nil {
 		deps.gate.RefreshAsync() // the plan has most likely just ended
 	}
@@ -557,7 +688,8 @@ func (c *chatSession) finishTurn(cancel context.CancelFunc, newHist []llm.AIMess
 	// провайдера (неверный ключ, лимиты, кончился контекст, сеть) уходила в
 	// панель как «stopped» — молча, без текста. Пользователь видел просто
 	// остановившийся ход.
-	stopped := ctx.Err() != nil
+	ctxErr := ctx.Err()
+	stopped := ctxErr != nil
 	cancel()
 	if err != nil {
 		if stopped {
@@ -571,6 +703,13 @@ func (c *chatSession) finishTurn(cancel context.CancelFunc, newHist []llm.AIMess
 			c.emit(Out{Type: "files_changed", Paths: st.changedList()})
 		}
 		c.emit(Out{Type: "done", Text: "ok", Elapsed: time.Since(start).Seconds()})
+	}
+	c.mu.Lock()
+	task := c.task
+	c.task = nil
+	c.mu.Unlock()
+	if task != nil {
+		c.reportTask(task, st, err, ctxErr)
 	}
 	c.mu.Lock()
 	c.turnCancel = nil
@@ -588,6 +727,49 @@ func (c *chatSession) finishTurn(cancel context.CancelFunc, newHist []llm.AIMess
 	if wake != nil && err == nil {
 		c.armWake(time.Now().Add(time.Duration(wake.DelaySeconds)*time.Second), wake.Reason, wake.PromptOnWake)
 	}
+	// Background subagents that finished during the turn: their results
+	// come as the next, automatic turn.
+	if err == nil && c.srv.agents != nil && c.srv.agents.HasFinished(c.id) {
+		c.srv.subagentNotify(c.id)
+	}
+}
+
+// reportTask sends the outcome of a task from the site back to the web chat:
+// the answer text, or the text so far with the reason it stopped, or the error.
+func (c *chatSession) reportTask(task *webTask, st *streamer, err, ctxErr error) {
+	text := ""
+	if st != nil {
+		text = st.text()
+	}
+	switch {
+	case errors.Is(ctxErr, context.DeadlineExceeded):
+		err = errors.New(i18n.Tf("inbox.task.timeout", c.srv.taskTimeout))
+	case ctxErr != nil:
+		err = errors.New(i18n.T("inbox.task.stopped"))
+	}
+	chunk, data := inbox.Outcome(text, err)
+	go task.finish(chunk, data)
+}
+
+// origin — who started the chat, for the panel.
+func (c *chatSession) origin() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return originOf(c.sess.Origin)
+}
+
+// pendingTask — the task from the site the chat is running, if any.
+func (c *chatSession) pendingTask() *webTask {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.task
+}
+
+func originOf(o string) string {
+	if o == originWeb {
+		return originWeb
+	}
+	return originUser
 }
 
 // armWake ставит таймер пробуждения и записывает его в сессию: закрытый
@@ -657,6 +839,10 @@ func (c *chatSession) stop() {
 	if cancel != nil {
 		cancel()
 	}
+	// Stopping a chat stops its subagents, background ones too.
+	if c.srv.agents != nil {
+		c.srv.agents.CancelParent(c.id)
+	}
 }
 
 func (c *chatSession) isBusy() bool {
@@ -692,13 +878,29 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 		cr = &config.Credentials{}
 	}
 
-	s := newServer(json.NewEncoder(os.Stdout), opts.Cwd)
+	protoIn, protoOut := opts.In, opts.Out
+	if protoIn == nil {
+		protoIn = os.Stdin
+	}
+	if protoOut == nil {
+		protoOut = os.Stdout
+	}
+	s := newServer(json.NewEncoder(protoOut), opts.Cwd)
 
 	// Plan gate: each turn on the ExecAI models asks it; billing is refreshed
 	// in the background only while the ExecAI models are the active source.
 	i18n.Setup(cfg.Locale)
 	gate := plan.New(cfg.APIBase)
 	gate.Start(ctx, plan.OnExecAI)
+
+	// Tasks from the site: this window may own the machine's inbox (see
+	// inbox.go). The lock is given back on every way out — stdin closed,
+	// SIGTERM, an error — or the daemon could never take over.
+	ctl := newInboxCtl(s, cfg.APIBase, opts.Cwd, gate, opts.NoInbox || inboxOff())
+	ctl.setCreds(cr)
+	defer ctl.shutdown()
+	inboxCtx, stopInbox := context.WithCancel(ctx)
+	defer stopInbox()
 
 	// Модели — cache-first, как TUI: редактор должен подняться и без сети.
 	res := llm.FetchModelsCached(cfg.APIBase, cr.Token)
@@ -768,30 +970,16 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 				_ = subs.Save()
 			}
 		}
-		items := sourceModels()
-		for _, it := range items {
-			if it.ID == cfg.SelectedModelID {
-				currentID = it.ID
-				return
-			}
+		// The same rule as execai serve and the terminal (llmpick.Model): the
+		// selected model when the source offers it, else the source's primary
+		// one, and none at all rather than a model of the previous source
+		// (source switch invariant 2).
+		id, _ := llmpick.Model(cfg.SelectedModelID, subs, res.Models)
+		currentID = id
+		if cfg.SelectedModelID != id {
+			cfg.SelectedModelID = id
+			_ = config.Save(cfg)
 		}
-		// The source's primary model, as the terminal picks it: the first
-		// entry is not it (Z.ai lists newest first — a -flashx variant).
-		// An empty catalog leaves no model at all rather than one of the
-		// previous source (source switch invariant 2).
-		currentID = ""
-		if a := subs.ActiveSubscription(); a != nil {
-			for _, m := range catalog.For(*a) {
-				if m.IsPrimary {
-					currentID = m.ID
-					break
-				}
-			}
-		} else if len(items) > 0 {
-			currentID = items[0].ID // the ExecAI catalog is sorted primary-first
-		}
-		cfg.SelectedModelID = currentID
-		_ = config.Save(cfg)
 	}
 	reconcileModel()
 	cli := llmpick.Client(cfg, subs, currentID, providerFor(currentID), cr.Token)
@@ -807,6 +995,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 			it.Active = it.ID == currentID
 			o.Models = append(o.Models, it)
 		}
+		ctl.decorate(&o)
 		o.Sources = append(o.Sources, NamedItem{ID: "execai", Label: "ExecAI",
 			Active: subs.ActiveSubscription() == nil})
 		for _, sub := range subs.List() {
@@ -819,6 +1008,18 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 		}
 		return o
 	}
+
+	// Subagents: one manager per process; the registry goes to the panel
+	// (agents) and to the server (the machine's card in the web panel).
+	agentFleet := fleet.New()
+	stopAgentsFeed := s.attachAgents(subagent.NewManager(agentFleet))
+	agentReport := fleet.StartReporter(agentFleet, fleet.HTTPSender(cfg.APIBase, fleet.SavedToken), opts.Cwd, 0)
+	defer func() {
+		s.agents.Shutdown(shutdownGrace)
+		agentReport.Close()
+		stopAgentsFeed()
+		agentFleet.Close()
+	}()
 
 	registry := tools.Default(opts.Cwd)
 	perms, _ := agent.LoadPermissions()
@@ -863,6 +1064,13 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 	})
 
 	sys := agent.SystemPrompt(opts.Cwd, registry.Names(), agent.LoadMemory(opts.Cwd))
+	// A task from the site runs without AskUser, as in execai serve: the
+	// person may be at the phone, and a question only the panel can answer
+	// would hang the task until its timeout. The model chooses between a
+	// reasonable assumption and saying in the answer what was missing.
+	webRegistry := tools.Default(opts.Cwd)
+	webRegistry.Unregister("AskUser")
+	webSys := agent.SystemPrompt(opts.Cwd, webRegistry.Names(), agent.LoadMemory(opts.Cwd))
 	if notice := res.OfflineNotice(); notice != "" {
 		s.emit(Out{Type: "notice", Text: notice})
 	}
@@ -870,6 +1078,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 		Type: "ready", Version: version.Get(), Protocol: Protocol,
 		Model: modelLabel(currentID), Source: subs.SourceLabel(), Cwd: opts.Cwd,
 	})
+	s.emit(agentsOut(nil))
 
 	// Снимок зависимостей хода — берётся в главном цикле, где их и меняют.
 	deps := func() turnDeps {
@@ -880,14 +1089,15 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 		return turnDeps{cli: cli, sys: sys, registry: registry, maxIter: maxIter,
 			modelID: currentID, provider: providerFor(currentID),
 			autoCompactPct: cfg.GetAutoCompactPercent(),
-			gate:           gate, planRoute: plan.RouteOf(subs)}
+			gate:           gate, planRoute: plan.RouteOf(subs),
+			source: subs.SourceLabel(), picker: llmpick.NewPicker(cfg, subs, res.Models, cr.Token)}
 	}
 	_ = perms
 
 	// Читатель stdin: команды в очередь главного цикла, ответы и стоп —
 	// напрямую: они должны доходить, пока ходы идут.
 	go func() {
-		sc := bufio.NewScanner(os.Stdin)
+		sc := bufio.NewScanner(protoIn)
 		sc.Buffer(make([]byte, 0, 1<<20), 1<<20) // выделение может быть большим
 		for sc.Scan() {
 			line := strings.TrimSpace(sc.Text())
@@ -918,8 +1128,13 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 				s.userQ <- in
 			}
 		}
-		close(s.userQ)
+		// Not close(): the inbox and wake-up timers also send here, and a
+		// send on a closed channel panics.
+		s.userQ <- In{Type: "eof"}
 	}()
+
+	go ctl.refresh(inboxCtx, refreshOpts{binding: true, force: true, ask: inbox.Background()})
+	go ctl.watch(inboxCtx)
 
 	// Пробуждения, пережившие закрытие редактора: чаты этого проекта с
 	// wake_at поднимаются в память и получают таймер; просроченные — срабатывают
@@ -970,8 +1185,32 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 		c.replayLive()
 	}
 
-	for in := range s.userQ {
+loop:
+	for {
+		var in In
+		select {
+		case in = <-s.userQ:
+		case <-ctx.Done():
+			break loop // SIGTERM: give the inbox back and leave
+		}
 		switch in.Type {
+		case "eof":
+			break loop
+		case "subagent_done":
+			s.subagentDone(in, deps())
+			continue
+		case "web_task":
+			// A task from the site: a new chat, not made active — the person
+			// may be typing in another one; the panel shows a tab and a toast.
+			c := s.newChat(currentID, providerFor(currentID))
+			c.mu.Lock()
+			c.sess.Origin = originWeb
+			c.mu.Unlock()
+			d := deps()
+			d.registry, d.sys = webRegistry, webSys
+			// The tab first (the updated chat list), then the turn's events.
+			c.startTurnThen(in, d, func() { s.emit(s.chatsOut(s.activeChat())) })
+			continue
 		case "new_chat":
 			// Сессионные разрешения живут в чате: новый чат — новые.
 			c := s.newChat(currentID, providerFor(currentID))
@@ -1061,6 +1300,8 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 					break
 				}
 				cr = newCr
+				ctl.setCreds(cr)
+				go ctl.refresh(inboxCtx, refreshOpts{binding: true, force: true, ask: true})
 				// После входа список моделей ExecAI становится доступен —
 				// перечитываем каталог и пересобираем клиента.
 				res = llm.FetchModelsCached(cfg.APIBase, cr.Token)
@@ -1074,6 +1315,8 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 					break
 				}
 				cr = &config.Credentials{}
+				ctl.setCreds(cr)
+				go ctl.refresh(inboxCtx, refreshOpts{binding: true, force: true, ask: true})
 				s.emit(Out{Type: "notice", Text: "вышли из ExecAI (подписки остались)"})
 				s.emit(stateOut())
 			case "connect":
@@ -1104,55 +1347,17 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 				}
 				s.emit(stateOut())
 			case "list_chats":
-				list, _ := sessions.List()
-				active := s.activeChat()
-				o := Out{Type: "chats"}
-				for _, c := range list {
-					// Только чаты ЭТОГО воркспейса: история в редакторе
-					// скоупится проектом, как у Claude Code.
-					if c.CWD != opts.Cwd {
-						continue
-					}
-					// Пустой заголовок отдаём как есть: подпись для чата без
-					// темы — дело интерфейса, у него она на языке пользователя.
-					item := NamedItem{ID: c.ID, Label: c.Title, Active: active != nil && c.ID == active.id}
-					if live := s.getChat(c.ID); live != nil {
-						item.Busy = live.isBusy()
-						item.Wake = live.wakeAt()
-					} else if c.WakeAt != nil {
-						item.Wake = c.WakeAt.Format(time.RFC3339)
-					}
-					o.Chats = append(o.Chats, item)
-					if len(o.Chats) >= 30 {
-						break
-					}
-				}
-				// Чаты, которых на диске ещё нет: первый ход идёт или только
-				// что начался. Без них человек, переключившийся на другую
-				// вкладку, не смог бы вернуться в чат, который ещё отвечает.
-				seen := map[string]bool{}
-				for _, it := range o.Chats {
-					seen[it.ID] = true
-				}
-				s.chatsMu.Lock()
-				for id, c := range s.chats {
-					if seen[id] {
-						continue
-					}
-					if !c.isBusy() && c != active {
-						continue
-					}
-					c.mu.Lock()
-					label := c.sess.Title
-					if label == "" {
-						label = shortTitle(c.firstText)
-					}
-					c.mu.Unlock()
-					item := NamedItem{ID: id, Label: label, Active: c == active, Busy: c.isBusy(), Wake: c.wakeAt()}
-					o.Chats = append([]NamedItem{item}, o.Chats...)
-				}
-				s.chatsMu.Unlock()
-				s.emit(o)
+				s.emit(s.chatsOut(s.activeChat()))
+			case "list_agents", "open_agent", "stop_agent":
+				s.agentCommand(in)
+			case "inbox_take":
+				go ctl.take(inboxCtx)
+			case "bind":
+				go ctl.bind(inboxCtx, strings.TrimSpace(firstNonEmpty(in.WorkspaceID, in.Value)))
+			case "unbind":
+				go ctl.unbind(inboxCtx)
+			case "list_workspaces":
+				go ctl.listWorkspaces(inboxCtx)
 			case "resume_last":
 				// Продолжить последний чат ЭТОГО проекта.
 				//
@@ -1241,16 +1446,98 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 		}
 	}
 	// Редактор закрыл канал: ходы в полёте отменяем — отвечать некому.
+	// The inbox goes first, so that execai serve can take over at once;
+	// tasks from the site in flight are answered before the process exits
+	// (the editor kills it shortly after closing stdin).
+	stopInbox()
+	ctl.shutdown()
 	s.chatsMu.Lock()
 	all := make([]*chatSession, 0, len(s.chats))
 	for _, c := range s.chats {
 		all = append(all, c)
 	}
 	s.chatsMu.Unlock()
+	var pending []*webTask
 	for _, c := range all {
+		if t := c.pendingTask(); t != nil {
+			pending = append(pending, t)
+			go t.finish(inbox.ChunkError, i18n.T("inbox.task.editorClosed"))
+		}
 		c.stop()
 	}
+	// Tasks taken from the inbox that never reached a chat.
+	for drained := false; !drained; {
+		select {
+		case in := <-s.userQ:
+			if in.task != nil {
+				pending = append(pending, in.task)
+				go in.task.finish(inbox.ChunkError, i18n.T("inbox.task.editorClosed"))
+			}
+		default:
+			drained = true
+		}
+	}
+	deadline := time.After(time.Second)
+	for _, t := range pending {
+		select {
+		case <-t.done:
+		case <-deadline:
+		}
+	}
 	return nil
+}
+
+// chatsOut — the chats of this folder for the panel's tab list: saved ones
+// (up to 30, newest first) plus those not saved yet whose first turn is still
+// running, so the person can always come back to a chat that is answering.
+func (s *server) chatsOut(active *chatSession) Out {
+	list, _ := sessions.List()
+	o := Out{Type: "chats"}
+	for _, c := range list {
+		// Only this folder's chats: the editor's history is per project.
+		if c.CWD != s.cwd {
+			continue
+		}
+		// An empty title goes as is: labelling an untitled chat is the
+		// panel's job, it speaks the person's language.
+		item := NamedItem{ID: c.ID, Label: c.Title, Active: active != nil && c.ID == active.id,
+			Origin: originOf(c.Origin)}
+		if live := s.getChat(c.ID); live != nil {
+			item.Busy = live.isBusy()
+			item.Wake = live.wakeAt()
+		} else if c.WakeAt != nil {
+			item.Wake = c.WakeAt.Format(time.RFC3339)
+		}
+		o.Chats = append(o.Chats, item)
+		if len(o.Chats) >= 30 {
+			break
+		}
+	}
+	seen := map[string]bool{}
+	for _, it := range o.Chats {
+		seen[it.ID] = true
+	}
+	s.chatsMu.Lock()
+	for id, c := range s.chats {
+		if seen[id] {
+			continue
+		}
+		if !c.isBusy() && c != active {
+			continue
+		}
+		c.mu.Lock()
+		label := c.sess.Title
+		if label == "" {
+			label = shortTitle(c.firstText)
+		}
+		origin := originOf(c.sess.Origin)
+		c.mu.Unlock()
+		item := NamedItem{ID: id, Label: label, Active: c == active, Busy: c.isBusy(), Wake: c.wakeAt(),
+			Origin: origin}
+		o.Chats = append([]NamedItem{item}, o.Chats...)
+	}
+	s.chatsMu.Unlock()
+	return o
 }
 
 // shortTitle — подпись вкладки из первой реплики, пока у чата нет заголовка.
@@ -1314,28 +1601,64 @@ func buildPrompt(in In) string {
 }
 
 // streamer транслирует события цикла в протокол.
+//
+// Parallel tool calls (several Task subagents) start and finish out of
+// order, so cards are tracked per call key (agent.ToolCallStreamer); the
+// key-less OnToolCall/OnToolResult (a delegated CLI) use the current card.
 type streamer struct {
-	c         *chatSession
-	toolSeq   int
-	curID     string
-	curTool   string
-	curPath   string // путь из аргументов текущего Write/Edit
+	c *chatSession
+	// answer — the turn's text, for the result of a task from the site.
+	answerMu  sync.Mutex
+	answer    strings.Builder
 	turnStart time.Time
-	changed   map[string]bool
+
+	mu      sync.Mutex
+	toolSeq int
+	curID   string
+	curTool string
+	curPath string // путь из аргументов текущего Write/Edit
+	calls   map[string]toolCard
+	changed map[string]bool
 }
 
-func (st *streamer) OnText(delta string)      { st.c.emit(Out{Type: "text_delta", Text: delta}) }
+// toolCard — a card in flight: its panel id and the file a Write/Edit names.
+type toolCard struct {
+	id   string
+	path string
+}
+
+func (st *streamer) OnText(delta string) {
+	st.answerMu.Lock()
+	st.answer.WriteString(delta)
+	st.answerMu.Unlock()
+	st.c.emit(Out{Type: "text_delta", Text: delta})
+}
+
+// text — everything the model said in this turn.
+func (st *streamer) text() string {
+	st.answerMu.Lock()
+	defer st.answerMu.Unlock()
+	return st.answer.String()
+}
+
 func (st *streamer) OnReasoning(delta string) { st.c.emit(Out{Type: "reasoning_delta", Text: delta}) }
 
-func (st *streamer) OnToolCall(name string, args json.RawMessage) {
-	st.toolSeq++
-	st.curID = fmt.Sprintf("t%d", st.toolSeq)
-	st.curTool = name
-	st.c.emit(Out{Type: "tool_call", ID: st.curID, Tool: name, Summary: agent.SummaryFor(name, args)})
+func (st *streamer) OnToolCall(name string, args json.RawMessage) { st.start("", name, args) }
+
+func (st *streamer) OnToolResult(name string, result string, err error) {
+	st.end("", name, result, err)
+}
+
+// OnToolStart/OnToolEnd — agent.ToolCallStreamer.
+func (st *streamer) OnToolStart(key, name string, args json.RawMessage) { st.start(key, name, args) }
+
+func (st *streamer) OnToolEnd(key, name, result string, err error) { st.end(key, name, result, err) }
+
+func (st *streamer) start(key, name string, args json.RawMessage) {
 	// Write/Edit меняют файлы — путь запоминаем, но в changed попадёт только
-	// то, что РЕАЛЬНО легло на диск (см. OnToolResult): отказ пользователя
+	// то, что РЕАЛЬНО легло на диск (см. end): отказ пользователя
 	// возвращается без ошибки, и по одному ok файл от «не файла» не отличить.
-	st.curPath = ""
+	path := ""
 	if name == "Write" || name == "Edit" {
 		var a struct {
 			Path string `json:"path"`
@@ -1343,30 +1666,57 @@ func (st *streamer) OnToolCall(name string, args json.RawMessage) {
 		}
 		if json.Unmarshal(args, &a) == nil {
 			if a.Path != "" {
-				st.curPath = a.Path
+				path = a.Path
 			} else if a.File != "" {
-				st.curPath = a.File
+				path = a.File
 			}
 		}
 	}
+	st.mu.Lock()
+	st.toolSeq++
+	id := fmt.Sprintf("t%d", st.toolSeq)
+	st.curID, st.curTool, st.curPath = id, name, path
+	if key != "" {
+		if st.calls == nil {
+			st.calls = map[string]toolCard{}
+		}
+		st.calls[key] = toolCard{id: id, path: path}
+	}
+	st.mu.Unlock()
+	st.c.emit(Out{Type: "tool_call", ID: id, CallID: key, Tool: name, Summary: agent.SummaryFor(name, args)})
 }
 
 func (st *streamer) OnToolChunk(name string, chunk string) {
-	st.c.emit(Out{Type: "tool_chunk", ID: st.curID, Tool: name, Chunk: chunk})
+	st.mu.Lock()
+	id := st.curID
+	st.mu.Unlock()
+	st.c.emit(Out{Type: "tool_chunk", ID: id, Tool: name, Chunk: chunk})
 }
 
-func (st *streamer) OnToolResult(name string, result string, err error) {
+func (st *streamer) end(key, name string, result string, err error) {
 	ok := err == nil
+	st.mu.Lock()
+	id, path := st.curID, st.curPath
+	if card, found := st.calls[key]; key != "" && found {
+		id, path = card.id, card.path
+		delete(st.calls, key)
+	}
+	if id == st.curID {
+		st.curPath = ""
+	}
 	// Файл считается изменённым по ФАКТУ: существует и тронут в этом ходу.
 	// Люфт 2с: файловые часы грубее time.Now() (tmpfs штампует тиком и может
 	// отстать на миллисекунды, FAT — на 2 секунды), без люфта свежая запись
 	// выглядела бы «старой».
-	if ok && st.curPath != "" {
-		if fi, statErr := os.Stat(st.curPath); statErr == nil && !fi.ModTime().Before(st.turnStart.Add(-2*time.Second)) {
-			st.changed[st.curPath] = true
+	if ok && path != "" {
+		if fi, statErr := os.Stat(path); statErr == nil && !fi.ModTime().Before(st.turnStart.Add(-2*time.Second)) {
+			if st.changed == nil {
+				st.changed = map[string]bool{}
+			}
+			st.changed[path] = true
 		}
-		st.curPath = ""
 	}
+	st.mu.Unlock()
 	tail := result
 	if err != nil {
 		tail = err.Error()
@@ -1376,10 +1726,12 @@ func (st *streamer) OnToolResult(name string, result string, err error) {
 		r := []rune(tail)
 		tail = "…" + string(r[len(r)-max:])
 	}
-	st.c.emit(Out{Type: "tool_result", ID: st.curID, Tool: name, OK: &ok, Tail: tail})
+	st.c.emit(Out{Type: "tool_result", ID: id, Tool: name, OK: &ok, Tail: tail})
 }
 
 func (st *streamer) changedList() []string {
+	st.mu.Lock()
+	defer st.mu.Unlock()
 	out := make([]string, 0, len(st.changed))
 	for p := range st.changed {
 		out = append(out, p)
@@ -1394,56 +1746,117 @@ func (st *streamer) OnIterationStart(n int) { st.c.emit(Out{Type: "iteration", N
 // словарь с веб-каналом; «в сессии» = в этом разговоре (как в TUI), поэтому
 // у каждого чата свой approver и новый чат начинает с чистого листа.
 type ideApprover struct {
-	c            *chatSession
+	c *chatSession
+	// mu guards the session maps: the chat's agent and its write subagents
+	// ask from different goroutines.
+	mu           sync.Mutex
 	sessionTools map[string]bool
 	sessionExact map[string]bool
 }
 
 func (a *ideApprover) AskApprove(toolName string, args json.RawMessage, summary string) agent.ApproveDecision {
+	return a.ask(context.Background(), nil, toolName, args, summary)
+}
+
+// ask puts one question on the panel — from the chat's agent (who nil) or a
+// subagent — and waits for the answer or for ctx to end.
+func (a *ideApprover) ask(ctx context.Context, who *agent.Asker, toolName string, args json.RawMessage, summary string) agent.ApproveDecision {
 	key := agent.ExactKey(toolName, args)
-	if a.sessionTools[toolName] || a.sessionExact[key] {
+	if a.allowed(toolName, key) {
 		return agent.ApproveOnce
 	}
+	if !a.c.acquireAsk(ctx) {
+		return agent.ApproveDeny
+	}
+	defer a.c.releaseAsk()
+	if a.allowed(toolName, key) { // answered "session" while we waited
+		return agent.ApproveOnce
+	}
+	id, ch, out := a.question(toolName, summary)
+	a.show(withAgent(out, who))
+	select {
+	case answer := <-ch:
+		a.clear(id)
+		return a.decide(answer, toolName, key)
+	case <-ctx.Done():
+		a.cancelQuestion(id)
+		return agent.ApproveDeny
+	}
+}
 
+// decide applies an answer under the chat's lock.
+func (a *ideApprover) decide(answer, toolName, key string) agent.ApproveDecision {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.sessionTools == nil {
+		a.sessionTools = map[string]bool{}
+	}
+	if a.sessionExact == nil {
+		a.sessionExact = map[string]bool{}
+	}
+	return decide(answer, toolName, key, a.sessionTools, a.sessionExact)
+}
+
+// allowed — the call is already allowed in this chat ("session"/"exact").
+func (a *ideApprover) allowed(toolName, key string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sessionTools[toolName] || a.sessionExact[key]
+}
+
+// question registers a permission question and builds its event.
+func (a *ideApprover) question(toolName, summary string) (string, chan string, Out) {
 	id, ch := a.c.srv.newQuestion()
 	out := Out{
 		Type: "ask", ID: id, Tool: toolName, Summary: summary,
 		Options: []AskOption{
-			{answerOnce, "Разово", "разрешить только этот вызов"},
-			{answerSession, "Весь " + toolName + " в сессии", "до конца этого чата"},
-			{answerExact, "Эту команду в сессии", "точно такой вызов до конца чата"},
+			{inbox.AnswerOnce, "Разово", "разрешить только этот вызов"},
+			{inbox.AnswerSession, "Весь " + toolName + " в сессии", "до конца этого чата"},
+			{inbox.AnswerExact, "Эту команду в сессии", "точно такой вызов до конца чата"},
 			// Формулировка нарочно не обещает «весь инструмент»: у чтения и
 			// сети «навсегда» означает КАТАЛОГ или ДОМЕН (см. tools.Scoped),
 			// и точный масштаб напечатан в summary выше. Кнопка, обещающая
 			// больше, чем делает, — обман в самом неподходящем месте.
-			{answerAlways, "НАВСЕГДА", "запомнить это разрешение — запишется в permissions.json"},
-			{answerDeny, "Отклонить", "не выполнять; агент получит отказ"},
+			{inbox.AnswerAlways, "НАВСЕГДА", "запомнить это разрешение — запишется в permissions.json"},
+			{inbox.AnswerDeny, "Отклонить", "не выполнять; агент получит отказ"},
 		},
 	}
-	// Вопрос помнится до ответа: вернувшись во вкладку, человек увидит кнопки.
+	return id, ch, out
+}
+
+// show remembers the question until it is answered (coming back to the tab,
+// the person sees the buttons again) and sends it to the panel.
+func (a *ideApprover) show(out Out) {
 	a.c.mu.Lock()
 	cp := out
 	cp.Chat = a.c.id
 	a.c.pendingAsk = &cp
 	a.c.mu.Unlock()
 	a.c.emit(out)
-	answer := <-ch
+}
+
+// clear forgets the question once it is answered.
+func (a *ideApprover) clear(id string) {
 	a.c.mu.Lock()
 	if a.c.pendingAsk != nil && a.c.pendingAsk.ID == id {
 		a.c.pendingAsk = nil
 	}
 	a.c.mu.Unlock()
+}
 
+// decide turns an answer into a decision, remembering "session" (the whole
+// tool) and "exact" (exactly this call) in the given scope.
+func decide(answer, toolName, key string, tools, exact map[string]bool) agent.ApproveDecision {
 	switch answer {
-	case answerOnce:
+	case inbox.AnswerOnce:
 		return agent.ApproveOnce
-	case answerSession:
-		a.sessionTools[toolName] = true
+	case inbox.AnswerSession:
+		tools[toolName] = true
 		return agent.ApproveOnce
-	case answerExact:
-		a.sessionExact[key] = true
+	case inbox.AnswerExact:
+		exact[key] = true
 		return agent.ApproveOnce
-	case answerAlways:
+	case inbox.AnswerAlways:
 		// Записывает цикл, а не интерфейс.
 		//
 		// Раньше здесь стоял AddTool(toolName) — и ответ «навсегда» на ОДИН

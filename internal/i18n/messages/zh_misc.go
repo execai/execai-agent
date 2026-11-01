@@ -231,7 +231,7 @@ var zhMiscMessages = map[string]string{
 
 	// === /project — привязка каталога к проекту ===
 	"hint.project":              "把当前目录绑定到网页聊天中的项目",
-	"project.usage":             "/project — 项目列表 · bind <名称> — 绑定当前目录 · unbind — 解除绑定 · on/off — 在项目中启用/停用代理",
+	"project.usage":             "/project — 项目列表 · bind <名称> — 绑定当前目录 · publish [名称] — 用当前目录创建网页聊天项目 · unbind — 解除绑定 · on/off — 在项目中启用/停用代理",
 	"project.listHeader":        "你的项目（● 已绑定到当前目录，○ 绑定在别处）：",
 	"project.listHint":          "绑定：/project bind <名称>",
 	"project.none":              "还没有项目——请在网页聊天中创建。",

@@ -267,6 +267,30 @@ func (c *Checker) Ensure(ctx context.Context) *Plan {
 	return c.Current()
 }
 
+// EnsureDaily is Ensure for background features (sync): billing is re-asked
+// only when there is no answer, the answer belongs to another token, or it is
+// older than RefreshEvery — a saved refusal is NOT re-asked sooner. For the
+// same token at most one attempt per RefreshEvery in this process, so a
+// failing network does not turn a periodic job into a my_plan loop. A
+// command the person typed uses Ensure instead.
+func (c *Checker) EnsureDaily(ctx context.Context) *Plan {
+	token := c.token()
+	if token == "" {
+		return c.Current()
+	}
+	fp := fingerprint(token)
+	now := c.now()
+	c.mu.Lock()
+	c.load()
+	need := c.cur == nil || c.cur.TokenFP != fp || now.Sub(c.cur.CheckedAt) >= RefreshEvery
+	gapOK := c.lastAttemptFP != fp || now.Sub(c.lastAttempt) >= RefreshEvery
+	c.mu.Unlock()
+	if need && gapOK {
+		_ = c.Refresh(ctx)
+	}
+	return c.Current()
+}
+
 // Check is the gate for one model call (r — see RouteOf). An own source is
 // let through without touching the network; only a call to the ExecAI models
 // (including a CLI fallback) is checked against the plan.
@@ -313,4 +337,27 @@ func (c *Checker) fetch(ctx context.Context, token string) (Plan, error) {
 		}
 		return Plan{}, &StatusError{Code: resp.StatusCode, Body: b}
 	}
+}
+
+// Allows reports whether the person's plan unlocks f now (Plan.Allows).
+// Unlike Check it does not depend on the model source: features such as the
+// web console come with the plan, whatever model the agent runs on.
+//
+// ask — billing may be asked now (Ensure: only when the saved answer is
+// stale). Without it only the saved answer counts, unless there is none at
+// all. my_plan may renew (charge) an expired period, so a check nobody asked
+// for — a background re-check while the person works on their own keys —
+// must not call it; an action of the person (a task from the site, "Accept
+// here") may. Not signed in — false.
+func (c *Checker) Allows(ctx context.Context, f Feature, ask bool) bool {
+	if !c.SignedIn() {
+		return false
+	}
+	p := c.Current()
+	if ask || p == nil {
+		ctx, cancel := context.WithTimeout(ctx, CheckTimeout)
+		defer cancel()
+		p = c.Ensure(ctx)
+	}
+	return p != nil && !p.LoggedOut && p.Allows(f, c.now())
 }

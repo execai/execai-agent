@@ -259,3 +259,33 @@ func TestSpawnLogPath(t *testing.T) {
 		t.Errorf("путь лога %q", p)
 	}
 }
+
+// An editor window accepts tasks from the site: serve must not start next to
+// it (two owners would split the tasks), and --stop must not kill it (its
+// chats would die) — both say who holds the inbox instead.
+func TestLock_EditorWindowOwnsInbox(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	cmd := exec.Command("sh", "-c", "sleep 30")
+	if err := cmd.Start(); err != nil {
+		t.Skipf("no sh: %v", err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() }()
+	p := filepath.Join(dir, "execai", "serve.pid")
+	_ = os.MkdirAll(filepath.Dir(p), 0o700)
+	_ = os.WriteFile(p, []byte(strconv.Itoa(cmd.Process.Pid)+" 1780000000 https://x ide /src/my site"), 0o600)
+
+	_, err := acquireLock("https://x")
+	if err == nil || !strings.Contains(err.Error(), "/src/my site") {
+		t.Fatalf("serve started next to an editor window: %v", err)
+	}
+	if err := Stop(time.Second, true); err == nil || !strings.Contains(err.Error(), "/src/my site") {
+		t.Errorf("Stop: %v", err)
+	}
+	if !processAlive(cmd.Process.Pid) {
+		t.Error("serve --stop killed the editor window's agent")
+	}
+	if running, _ := Status(); running {
+		t.Error("status reports a daemon where there is an editor window")
+	}
+}

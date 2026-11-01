@@ -33,7 +33,26 @@ type Session struct {
 	WakeAt     *time.Time `json:"wake_at,omitempty"`
 	WakeReason string     `json:"wake_reason,omitempty"`
 	WakePrompt string     `json:"wake_prompt,omitempty"`
+	// Origin — who started the chat: "web" for a task from the ExecAI web
+	// chat taken by the editor panel; "subagent" for the work of a subagent;
+	// empty for a chat the person started.
+	Origin string `json:"origin,omitempty"`
+
+	// Subagent sessions only. ParentID — the chat whose agent started it;
+	// ParentToolCall — the key of its Task call; State — the subagent's
+	// state when last saved (running, done, failed, cancelled).
+	ParentID       string `json:"parent_id,omitempty"`
+	ParentToolCall string `json:"parent_tool_call,omitempty"`
+	State          string `json:"state,omitempty"`
 }
+
+// OriginSubagent marks the session of a subagent. Such sessions are a
+// transcript to open from the agents list, not a chat to resume: List and
+// MostRecent leave them out.
+const OriginSubagent = "subagent"
+
+// IsSubagent reports whether the session is a subagent's transcript.
+func (s *Session) IsSubagent() bool { return s.Origin == OriginSubagent }
 
 func dir() (string, error) {
 	base, err := os.UserConfigDir()
@@ -105,8 +124,44 @@ func Load(id string) (*Session, error) {
 	return &s, nil
 }
 
-// List returns all sessions, sorted by UpdatedAt from newest to oldest.
+// List returns the chats — every session except subagent transcripts —
+// sorted by UpdatedAt from newest to oldest. Pickers (/sessions, /resume,
+// the panel's tabs) and auto-resume use it: a subagent's transcript must not
+// become the conversation the person continues.
 func List() ([]*Session, error) {
+	all, err := ListAll()
+	if err != nil {
+		return nil, err
+	}
+	out := all[:0]
+	for _, s := range all {
+		if !s.IsSubagent() {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
+// Children returns the subagent sessions started from the chat parentID,
+// oldest first.
+func Children(parentID string) ([]*Session, error) {
+	all, err := ListAll()
+	if err != nil {
+		return nil, err
+	}
+	var out []*Session
+	for _, s := range all {
+		if s.IsSubagent() && s.ParentID == parentID {
+			out = append(out, s)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.Before(out[j].StartedAt) })
+	return out, nil
+}
+
+// ListAll returns every session, subagent transcripts included, sorted by
+// UpdatedAt from newest to oldest.
+func ListAll() ([]*Session, error) {
 	d, err := dir()
 	if err != nil {
 		return nil, err
@@ -135,7 +190,8 @@ func List() ([]*Session, error) {
 	return out, nil
 }
 
-// MostRecent is the most recently updated session (for auto-resume), or nil.
+// MostRecent is the most recently updated chat (for auto-resume), or nil.
+// Subagent transcripts never count.
 func MostRecent() *Session {
 	list, err := List()
 	if err != nil || len(list) == 0 {

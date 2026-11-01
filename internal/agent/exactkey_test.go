@@ -10,9 +10,9 @@ func TestExactKey_CosmeticsDontChangeIt(t *testing.T) {
 
 	same := []string{
 		`{"command":"touch /tmp/x","description":"Create marker (second call)"}`, // другая подпись
-		`{"command":"touch /tmp/x"}`,                                             // без подписи вовсе
-		`{"description":"whatever","command":"touch /tmp/x"}`,                    // другой порядок полей
-		`{ "command" : "touch /tmp/x" }`,                                         // пробелы
+		`{"command":"touch /tmp/x"}`,                          // без подписи вовсе
+		`{"description":"whatever","command":"touch /tmp/x"}`, // другой порядок полей
+		`{ "command" : "touch /tmp/x" }`,                      // пробелы
 	}
 	for _, s := range same {
 		if got := ExactKey("Bash", []byte(s)); got != base {

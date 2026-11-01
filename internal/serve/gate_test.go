@@ -120,3 +120,34 @@ func TestGateTask_OwnSourcesRunWithoutPlan(t *testing.T) {
 		}
 	}
 }
+
+// Tasks from the site come with the Work and Max plans: on another plan the
+// task is answered with the refusal, whatever model would run it.
+func TestBoardTask_NeedsWorkOrMax(t *testing.T) {
+	isolateConfig(t)
+	i18n.SetLocale("ru")
+	defer i18n.SetLocale("en")
+	start := newFakeAPI(t, `{"tariff_code":"week_start","state":"active",
+		"valid_until":"2099-01-01T00:00:00Z","is_accessible":true}`)
+	cfg := &config.Config{APIBase: start.srv.URL}
+	gate := plan.NewChecker(start.srv.URL, "", func() string { return "tok" })
+	if boardTask(context.Background(), cfg, "tok", Task{ID: "t-start"}, gate) {
+		t.Fatal("week_start let a task from the site through")
+	}
+	if len(start.results) != 1 || start.results[0]["chunk_type"] != "error" ||
+		!strings.Contains(start.results[0]["data"], "«Работа» и «Макс»") ||
+		!strings.Contains(start.results[0]["data"], plan.SubscribeURL) {
+		t.Errorf("result %+v", start.results)
+	}
+
+	work := newFakeAPI(t, `{"tariff_code":"week_work","state":"active",
+		"valid_until":"2099-01-01T00:00:00Z","is_accessible":true}`)
+	cfg = &config.Config{APIBase: work.srv.URL}
+	gate = plan.NewChecker(work.srv.URL, "", func() string { return "tok" })
+	if !boardTask(context.Background(), cfg, "tok", Task{ID: "t-work"}, gate) {
+		t.Fatal("week_work refused")
+	}
+	if len(work.results) != 0 {
+		t.Errorf("a result was posted for an allowed task: %+v", work.results)
+	}
+}

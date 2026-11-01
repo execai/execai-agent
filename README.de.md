@@ -25,6 +25,7 @@ Type a task. /model — models, /help — commands, /quit — exit.
 
 ## Inhalt
 
+1. [Neu in Version 7](#neu-in-version-7)
 1. [Installation](#installation)
 2. [Erster Start](#erster-start)
 3. [Mit dem Agent sprechen](#mit-dem-agent-sprechen)
@@ -498,6 +499,19 @@ Wenn die KI entscheidet, dass die Aufgabe erledigt ist — ruft sie einfach kein
 
 ---
 
+## Neu in Version 7
+
+Die siebte Linie ist das bisher größte Update des Agenten. Vollständige Notizen (Russisch): [scripts/release-notes](scripts/release-notes/).
+
+- **Subagenten, parallel.** Das Modell verteilt Teilaufgaben mit dem Werkzeug `Task`: mehrere `Task`-Aufrufe in einer Antwort laufen gleichzeitig, `background: true` hält das Gespräch am Laufen, `TaskWait` sammelt die Ergebnisse. Modus `read` (nur lesende Werkzeuge, fragt nie) oder `write` (bearbeitende Werkzeuge; Berechtigungen werden bei dir erfragt, mit dem Namen des Agenten markiert), Modell `same | fast | <id>`. Wer was tut: der Block **„Agenten“** über der Eingabe, `/agents`, `/agents open N`, `/agents stop N`; dieselbe Liste im Editor-Panel und auf der Maschinenkarte auf execai.ru.
+- **Aufgaben von der Website landen im Editor-Panel.** Ein VS-Code- / ExecAI-Studio-Fenster mit geöffnetem Projekt nimmt Aufgaben aus dem Web-Chat oder vom Telefon selbst an: die Aufgabe öffnet sich als Chat mit der Markierung „von der Website“, eine Berechtigungsfrage erreicht Panel und Website. Projekt im Panel-Menü binden. Pläne Work und Max.
+- **Das Panel im Browser — `execai ui`.** Dasselbe Panel ohne Editor: ein Einmal-Link auf 127.0.0.1 — [Anleitung](docs/en/ui.md).
+- **Sync mit Passphrase — `execai sync on`.** Gedächtnis, Einstellungen und Anbieter-Schlüssel werden auf deinen Rechnern mit einer Sync-Passphrase verschlüsselt; der Server speichert nur Chiffretext und kann ihn nicht lesen. Projekte synchronisieren sich pro Projekt: `/project publish` macht aus einem Ordner ein Web-Projekt, `/project bind` entpackt ein Web-Projekt in einen Ordner. Pläne Work und Max; `execai sync keys export|import` überträgt Anbieter-Schlüssel direkt, ohne Server und ohne Plan — [Anleitung](docs/en/sync.md).
+- **Umzug von einem anderen Agenten.** `CLAUDE.md`, `.cursorrules`, `AGENTS.md`, `.windsurfrules`, `GEMINI.md`, `copilot-instructions.md` werden ins Gedächtnis übernommen: `/memory import`, `execai import --dry-run` — [Anleitung](docs/en/migrate.md).
+- **ExecAI-Modelle per Plan, eigene Schlüssel ohne.** `/plan` zeigt den Plan; die Quellen `zai|kimi|openai|anthropic|openrouter|custom|claude-cli|codex-cli|ollama` funktionieren ohne Konto.
+
+---
+
 ## Im Editor — VS Code, Cursor, ExecAI Studio
 
 Derselbe Agent läuft in der [VS-Code-/Cursor-Erweiterung](https://marketplace.visualstudio.com/items?itemName=execai.execai) und in [ExecAI Studio](https://github.com/execai/execai-studio). Seit R6.8x ist das Panel mehrchat-fähig:
@@ -506,12 +520,15 @@ Derselbe Agent läuft in der [VS-Code-/Cursor-Erweiterung](https://marketplace.v
 - **Tab-Badges.** Pulsierender Punkt — der Agent arbeitet dort; grüner Punkt — fertig, noch nicht angesehen; `?` — wartet auf deine Antwort (Berechtigung oder AskUser-Frage); ⏰ — ein Aufwachen ist geplant. Ein Chat, der fertig wird oder fragt, während du woanders bist, zeigt zusätzlich einen Toast mit **Öffnen**.
 - **Aufwachen funktioniert auch im Editor.** Ruft das Modell `schedule_wakeup` auf, zeigt der Chat «wacht um 14:05 auf — Grund» mit **Jetzt** / **Abbrechen**, der Tab bekommt ⏰. Das Aufwachen wird mit dem Chat gespeichert: Editor schließen und wieder öffnen — ein überfälliges feuert sofort, ein künftiges bekommt seinen Timer zurück.
 - **`wait` statt Versprechen.** Das Modell darf nie «ich prüfe in fünf Minuten» schreiben: Es ruft `wait` (kurze Wartezeiten im Zug, optional mit Befehls-Polling) oder `schedule_wakeup` (lange Wartezeiten, der Chat wird freigegeben).
+- **Im Browser — `execai ui`.** Dasselbe Panel in einem Browser-Tab auf 127.0.0.1, ohne Editor: `execai ui` im Projektverzeichnis gibt einen Einmal-Link aus und öffnet ihn; Strg+C beendet es — [Anleitung](docs/en/ui.md).
 
 ---
 
 ## Agent-Memory
 
 Der Agent merkt sich Fakten über Sessions hinweg — wie Claude Code, nur einfacher. Sie werden automatisch in den System-Prompt geladen (nur der Index, nicht alles auf einmal) — der Kontext bleibt leichtgewichtig.
+
+Memory, Einstellungen, Berechtigungen und Provider-Schlüssel lassen sich auf allen deinen Computern gleich halten, verschlüsselt mit deinem Sync-Passwort (Tarife «Work» und «Max»): `/sync on` — [Anleitung](docs/en/sync.md).
 
 ### Wo was hingeht
 

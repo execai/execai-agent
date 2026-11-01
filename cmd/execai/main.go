@@ -76,9 +76,12 @@ func main() {
 		newRunCmd(),
 		newServeCmd(),
 		newIDECmd(),
+		newUICmd(),
 		newConfigCmd(),
 		newVersionCmd(),
 		newImportCmd(),
+		newSyncCmd(),
+		newProjectCmd(),
 	)
 
 	if err := root.ExecuteContext(ctx); err != nil {
@@ -207,6 +210,7 @@ func newRunCmd() *cobra.Command {
 func newIDECmd() *cobra.Command {
 	var cwd string
 	var maxIter int
+	var noInbox bool
 	cmd := &cobra.Command{
 		Use:    "ide",
 		Short:  "JSON-протокол для плагина редактора (запускается плагином, не человеком)",
@@ -216,11 +220,14 @@ func newIDECmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return ide.Run(cmd.Context(), cfg, ide.Options{Cwd: cwd, MaxIterations: maxIter})
+			// Sync runs silently here: stdout is the editor's protocol.
+			defer syncInBackground(cmd.Context(), cfg, nil)()
+			return ide.Run(cmd.Context(), cfg, ide.Options{Cwd: cwd, MaxIterations: maxIter, NoInbox: noInbox})
 		},
 	}
 	cmd.Flags().StringVar(&cwd, "cwd", "", "корень проекта (папка воркспейса редактора)")
 	cmd.Flags().IntVar(&maxIter, "max-iterations", 0, "предел итераций на ход (по умолчанию из конфига)")
+	cmd.Flags().BoolVar(&noInbox, "no-inbox", false, "не принимать задачи с сайта в этом окне (или EXECAI_IDE_INBOX=off)")
 	return cmd
 }
 
@@ -229,6 +236,9 @@ func newIDECmd() *cobra.Command {
 // Отдельная команда, а не работа внутри TUI, потому что у инбокса должен быть
 // ровно один владелец: иначе задачи делились бы между чатом и демоном
 // случайным образом, и пользователь не понимал бы, куда ушла задача.
+// The other possible owner is an editor window (`execai ide`): both take the
+// same lock (internal/inbox), so serve refuses to start while a window
+// accepts tasks, and the window offers to take over from a running serve.
 func newServeCmd() *cobra.Command {
 	var pollWait, taskTimeout time.Duration
 	var maxIter int
@@ -279,6 +289,7 @@ func newServeCmd() *cobra.Command {
 				opts.MaxIterations = maxIter
 			}
 			opts.ReadOnly = readOnly
+			defer syncInBackground(cmd.Context(), cfg, func(s string) { fmt.Println(s) })()
 			return serve.Run(cmd.Context(), cfg, opts)
 		},
 	}

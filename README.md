@@ -25,6 +25,7 @@ Type a task. /model — models, /help — commands, /quit — exit.
 
 ## Contents
 
+1. [What's new in 7](#whats-new-in-7)
 1. [Installation](#installation)
 2. [First run](#first-run)
 3. [Talking to the agent](#talking-to-the-agent)
@@ -506,6 +507,19 @@ If the AI decides the task is done — it simply doesn't call `schedule_wakeup`,
 
 ---
 
+## What's new in 7
+
+The seventh line is the biggest update of the agent so far. Full notes: [scripts/release-notes](scripts/release-notes/).
+
+- **Subagents, in parallel.** The model hands out subtasks with the `Task` tool: several `Task` calls in one reply run at the same time, `background: true` keeps the conversation going, `TaskWait` collects the results. Mode `read` (read-only tools, never asks) or `write` (editing tools; permissions are asked from you, marked with the agent's name), model `same | fast | <id>`. Who is doing what: the **Agents** block above the input, `/agents`, `/agents open N`, `/agents stop N`; the same list in the editor panel and on the machine card at execai.ru.
+- **Tasks from the site land in the editor panel.** A VS Code / ExecAI Studio window with an open project accepts tasks sent from the web chat or the phone by itself: the task opens as a chat tagged «from the web», a permission question reaches both the panel and the site. Bind the project from the panel menu. Work and Max plans.
+- **The panel in a browser — `execai ui`.** The same panel without an editor: a one-time link on 127.0.0.1 — [guide](docs/en/ui.md).
+- **Sync with a passphrase — `execai sync on`.** Memory, settings and provider keys are encrypted on your machines with a sync passphrase; the server keeps ciphertext only and cannot read it. Projects sync per project: `/project publish` turns a folder into a web project, `/project bind` unpacks a web project into a folder. Work and Max plans; `execai sync keys export|import` moves provider keys directly, with no server and no plan — [guide](docs/en/sync.md).
+- **Migrating from another agent.** `CLAUDE.md`, `.cursorrules`, `AGENTS.md`, `.windsurfrules`, `GEMINI.md`, `copilot-instructions.md` are picked up into memory: `/memory import`, `execai import --dry-run` — [guide](docs/en/migrate.md).
+- **ExecAI models by plan, your own keys without one.** `/plan` shows the plan; the sources `zai|kimi|openai|anthropic|openrouter|custom|claude-cli|codex-cli|ollama` work without an account.
+
+---
+
 ## In the editor — VS Code, Cursor, ExecAI Studio
 
 The same agent runs inside the [VS Code / Cursor extension](https://marketplace.visualstudio.com/items?itemName=execai.execai) and [ExecAI Studio](https://github.com/execai/execai-studio). Since R6.8x the panel is multi-chat:
@@ -514,6 +528,7 @@ The same agent runs inside the [VS Code / Cursor extension](https://marketplace.
 - **Tab badges.** A pulsing dot — the agent is working there; a green dot — it finished and you have not looked yet; `?` — it is waiting for your answer (a permission or an AskUser question); ⏰ — a wake-up is scheduled. A chat that finishes or asks something while you are elsewhere also raises a toast with an **Open** button.
 - **Wake-ups work in the editor too.** When the model calls `schedule_wakeup`, the chat shows «will wake up at 14:05 — reason» with **Now** / **Cancel** buttons and the tab gets ⏰. The wake-up is stored with the chat: close the editor and reopen it — an overdue wake-up fires at once, a future one gets its timer back.
 - **`wait` instead of promises.** The model is told never to write «I'll check in five minutes» — it calls `wait` (short waits, inside the turn, optionally polling a command) or `schedule_wakeup` (long waits, the chat is released).
+- **In a browser — `execai ui`.** The same panel in a browser tab on 127.0.0.1, no editor needed: `execai ui` in the project directory prints a one-time link and opens it; Ctrl+C stops it — [guide](docs/en/ui.md).
 
 ---
 
@@ -534,6 +549,8 @@ Guide: [Russian](docs/ru/migrate.md) · [English](docs/en/migrate.md)
 ## Agent memory
 
 The agent remembers facts across sessions — like Claude Code, but simpler. It's automatically loaded into the system prompt (only the index, not everything at once) — the context stays lightweight.
+
+Memory, settings, permissions and provider keys can be the same on all your computers, encrypted with your sync password («Work» and «Max» plans): `/sync on` — [guide](docs/en/sync.md).
 
 ### Where things go
 

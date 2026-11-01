@@ -50,16 +50,16 @@ func TestT_MissingKeyFallsBackToEn(t *testing.T) {
 
 func TestNormalize(t *testing.T) {
 	cases := map[string]string{
-		"en":            "en",
-		"en_US":         "en",
-		"en_US.UTF-8":   "en",
-		"ru_RU.UTF-8":   "ru",
-		"zh_CN.UTF-8":   "zh",
-		"zh-Hans":       "zh",
-		"es_ES@euro":    "es",
-		"":              "",
-		"C":             "c",
-		"POSIX":         "posix",
+		"en":          "en",
+		"en_US":       "en",
+		"en_US.UTF-8": "en",
+		"ru_RU.UTF-8": "ru",
+		"zh_CN.UTF-8": "zh",
+		"zh-Hans":     "zh",
+		"es_ES@euro":  "es",
+		"":            "",
+		"C":           "c",
+		"POSIX":       "posix",
 	}
 	// normalize is internal. Test it indirectly via SetLocale (accepts any input).
 	// Anything that is not a 2-letter code of a known locale → fallback to en.
