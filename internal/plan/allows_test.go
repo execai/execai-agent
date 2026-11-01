@@ -12,6 +12,8 @@ import (
 func TestChecker_AllowsFeature(t *testing.T) {
 	work := `{"user_id":"u1","tariff_code":"week_work","state":"active",
 		"valid_until":"2026-11-05T22:22:28Z","is_accessible":true}`
+	owner := `{"user_id":"u1","tariff_code":"owner_service","state":"active",
+		"valid_until":"2037-01-01T00:00:00Z","is_accessible":true}`
 	cases := []struct {
 		name  string
 		body  string
@@ -19,6 +21,7 @@ func TestChecker_AllowsFeature(t *testing.T) {
 		want  bool
 	}{
 		{"work plan", work, "tok", true},
+		{"owner service plan", owner, "tok", true},
 		{"start plan", bodyActive, "tok", false},
 		{"no plan", bodyNone, "tok", false},
 		{"grace keeps work", bodyGrace, "tok", true},

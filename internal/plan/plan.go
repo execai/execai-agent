@@ -179,8 +179,10 @@ const (
 // purpose: a monthly "Work" plan is expected to join week_work/week_max here
 // once billing ships it.
 var featureTariffs = map[Feature][]string{
-	FeatureSync:  {TariffWeekWork, TariffWeekMax},
-	FeatureBoard: {TariffWeekWork, TariffWeekMax},
+	// owner_service is the in-house service plan (no price, not on the
+	// storefront): it unlocks everything the Max plan does.
+	FeatureSync:  {TariffWeekWork, TariffWeekMax, TariffOwnerService},
+	FeatureBoard: {TariffWeekWork, TariffWeekMax, TariffOwnerService},
 }
 
 // Allows reports whether the plan unlocks f at now: the plan is active and
