@@ -52,6 +52,12 @@ Type a task. /model — models, /help — commands, /quit — exit.
 curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | bash
 ```
 
+二进制文件默认来自 **GitHub Releases**。在俄罗斯/独联体，Yandex 镜像通常快得多——脚本会为 `ru` 区域设置自动选择它，也可以强制使用：
+
+```bash
+curl -fsSL https://storage.yandexcloud.net/execai-agent-prod/execai/stable/install.sh | MIRROR=yandex bash
+```
+
 二进制文件默认来自 **GitHub Releases**。在俄罗斯/独联体地区 Yandex 镜像通常快得多 — 脚本会为 `ru` locale 自动选择，也可以用 `MIRROR=yandex` 强制指定。
 
 脚本会：
@@ -76,13 +82,13 @@ iwr -useb https://storage.yandexcloud.net/execai-agent-prod/execai/stable/instal
 安装完成后，验证一下：
 ```bash
 execai version
-# execai R6.NN
+# execai R7.NN
 ```
 
 ### 固定到特定版本
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=6.78 bash
+curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=7.2 bash
 ```
 
 ### 手动下载

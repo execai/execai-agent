@@ -11,8 +11,8 @@
 #   MIRROR=yandex bash   ← usage with an explicit mirror:
 #   curl -fsSL … | MIRROR=yandex bash
 #
-# Pin a version:  VERSION=5.136 curl -fsSL … | bash
-#   (github: releases/download/v5.136, yandex: still the stable channel)
+# Pin a version:  VERSION=7.2 curl -fsSL … | bash
+#   (github: releases/download/v7.2, yandex: still the stable channel)
 #
 # Windows: use install.ps1 instead.
 

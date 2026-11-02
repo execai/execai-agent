@@ -80,13 +80,13 @@ iwr -useb https://storage.yandexcloud.net/execai-agent-prod/execai/stable/instal
 После установки проверь:
 ```bash
 execai version
-# execai R6.NN
+# execai R7.NN
 ```
 
 ### Установить конкретную версию
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=6.78 bash
+curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=7.2 bash
 ```
 
 ### Скачать вручную

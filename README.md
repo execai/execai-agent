@@ -80,13 +80,13 @@ Auto-detects architecture (amd64 / arm64 for Copilot+ PCs), asks for **UAC** onc
 After install, verify:
 ```bash
 execai version
-# execai R6.NN
+# execai R7.NN
 ```
 
 ### Pin a specific version
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=6.78 bash
+curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=7.2 bash
 ```
 
 ### Manual download

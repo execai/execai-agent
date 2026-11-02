@@ -52,6 +52,12 @@ Type a task. /model — models, /help — commands, /quit — exit.
 curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | bash
 ```
 
+Die Binaries kommen standardmäßig von **GitHub Releases**. In Russland/GUS ist der Yandex-Spiegel meist deutlich schneller — das Skript wählt ihn für `ru`-Locales automatisch, oder erzwinge ihn:
+
+```bash
+curl -fsSL https://storage.yandexcloud.net/execai-agent-prod/execai/stable/install.sh | MIRROR=yandex bash
+```
+
 Die Binaries kommen standardmäßig von **GitHub Releases**. In Russland/GUS ist der Yandex-Mirror meist deutlich schneller — das Skript wählt ihn für `ru`-Locales automatisch, oder erzwinge ihn mit `MIRROR=yandex`.
 
 Das Skript wird:
@@ -76,13 +82,13 @@ Erkennt die Architektur automatisch (amd64 / arm64 für Copilot+ PCs), fragt ein
 Nach der Installation prüfen:
 ```bash
 execai version
-# execai R6.NN
+# execai R7.NN
 ```
 
 ### Eine bestimmte Version pinnen
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=6.78 bash
+curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=7.2 bash
 ```
 
 ### Manueller Download
