@@ -3,6 +3,8 @@ package ide
 import (
 	"context"
 	"encoding/json"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/velesbsdllc/agent-vbai/internal/agent"
@@ -19,6 +21,10 @@ import (
 //   - open_agent {value:id} → agent_loaded {id, title, state, messages} —
 //     the subagent's transcript from its session, for a read-only tab;
 //   - stop_agent {value:id} — stop one subagent;
+//   - extend_agent {value:"id [steps]"} — give one more steps: a working one
+//     gets a higher max_iter at once, one with exhausted=true goes on;
+//   - set_subagent_iterations {value:N} — steps of new subagents (state
+//     carries it as subagent_iter);
 //   - ask carries agent {id, title} when a write subagent asks.
 //
 // Subagents' own events never reach the parent chat's feed: the chat shows
@@ -57,7 +63,7 @@ func (s *server) attachAgents(m *subagent.Manager) func() {
 	return m.Fleet().Subscribe(func(recs []fleet.Record) { s.emit(agentsOut(recs)) })
 }
 
-// agentCommand handles list_agents, open_agent and stop_agent.
+// agentCommand handles list_agents, open_agent, stop_agent and extend_agent.
 func (s *server) agentCommand(in In) {
 	if s.agents == nil {
 		s.emit(agentsOut(nil))
@@ -79,6 +85,22 @@ func (s *server) agentCommand(in In) {
 		o := replayOut(sess.Messages)
 		s.emit(Out{Type: "agent_loaded", ID: rec.ID, Title: rec.Title, State: string(rec.State),
 			Messages: append([]ReplayMsg{}, o.Msgs...)})
+	case "extend_agent":
+		f := strings.Fields(in.Value)
+		if len(f) == 0 {
+			s.emit(Out{Type: "error", Text: i18n.Tf("fleet.ide.notFound", "")})
+			return
+		}
+		steps := 0
+		if len(f) > 1 {
+			steps, _ = strconv.Atoi(f[1])
+		}
+		msg, err := s.agents.Extend(f[0], steps)
+		if err != nil {
+			s.emit(Out{Type: "error", Text: err.Error()})
+			return
+		}
+		s.emit(Out{Type: "notice", Text: msg})
 	case "stop_agent":
 		rec, ok := s.agents.Fleet().Get(in.Value)
 		if !ok {

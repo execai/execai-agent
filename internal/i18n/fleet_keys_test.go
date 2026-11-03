@@ -25,6 +25,9 @@ var fleetKeys = []string{
 	"fleet.tui.notRunning", "fleet.tui.usage", "fleet.tui.autoReply",
 	"fleet.tui.cardDone", "fleet.tui.approveAgent", "fleet.tui.stoppedChildren",
 	"status.agents", "hint.agents", "fleet.ide.notFound", "fleet.ide.stopping",
+	"fleet.extend.raised", "fleet.extend.resumed", "fleet.extend.ceiling", "fleet.extend.finished",
+	"fleet.extend.prompt", "fleet.tui.steps", "fleet.tui.atLimit", "fleet.tui.moreHint",
+	"fleet.tui.limitShow", "fleet.tui.limitSet", "fleet.tui.limitBad",
 }
 
 var verbRe = regexp.MustCompile(`%[0-9.]*[a-zA-Z%]`)

@@ -37,6 +37,9 @@ type Config struct {
 	// run in a single turn. When exhausted, a soft stop marker is inserted; the
 	// user can say 'continue' and the loop runs the same amount again. 0 = default (50).
 	MaxIterations int `json:"max_iterations,omitempty"`
+	// SubagentIterations — steps a new subagent gets when the Task call names
+	// none (/agents limit, the panel menu). 0 = tools.SubagentDefaultIterations.
+	SubagentIterations int `json:"subagent_iterations,omitempty"`
 	// ClassicTUI is the opt-in classic mode (alt-screen + mouse capture, status
 	// bar pinned to the bottom, Shift+drag to copy). Default false =
 	// Ink-style rendering: history is written to the terminal scrollback via

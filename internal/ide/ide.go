@@ -75,7 +75,8 @@ type In struct {
 	// set_max_iterations | login | logout | connect | disconnect |
 	// list_chats | load_chat | cancel_wakeup | wake_now | inbox_take |
 	// bind | unbind | list_workspaces | list_agents | open_agent |
-	// stop_agent; value is the argument
+	// stop_agent | extend_agent | set_subagent_iterations; value is the
+	// argument (extend_agent: "<id>" or "<id> <steps>")
 	Name string `json:"name,omitempty"`
 	// bind: the project to bind this folder to (value works too).
 	WorkspaceID string `json:"workspace_id,omitempty"`
@@ -156,8 +157,10 @@ type Out struct {
 	User        string      `json:"user,omitempty"`   // email вошедшего, пусто = не вошёл
 	Effort      string      `json:"effort,omitempty"` // текущий уровень
 	MaxIter     int         `json:"max_iter,omitempty"`
-	Security    string      `json:"security,omitempty"`   // уровень доверия
-	Securities  []NamedItem `json:"securities,omitempty"` // варианты для пикера
+	// SubagentIter — steps a new subagent gets by default.
+	SubagentIter int         `json:"subagent_iter,omitempty"`
+	Security     string      `json:"security,omitempty"`   // уровень доверия
+	Securities   []NamedItem `json:"securities,omitempty"` // варианты для пикера
 	// chat_loaded
 	Msgs []ReplayMsg `json:"msgs,omitempty"`
 	// chat_loaded: ход в этом чате ещё идёт (панель получит и его поток)
@@ -989,7 +992,8 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 	stateOut := func() Out {
 		o := Out{Type: "state", Model: modelLabel(currentID), Source: subs.SourceLabel(),
 			User: cr.Email, Effort: effortName(cfg.ThinkingBudget), MaxIter: cfg.GetMaxIterations(),
-			Security: security.Current().String(), Securities: securityOptions(),
+			SubagentIter: tools.SubagentDefault(),
+			Security:     security.Current().String(), Securities: securityOptions(),
 			Efforts: EffortOptions(cfg.ThinkingBudget), Connectable: ConnectableOptions()}
 		for _, it := range sourceModels() {
 			it.Active = it.ID == currentID
@@ -1012,6 +1016,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 	// Subagents: one manager per process; the registry goes to the panel
 	// (agents) and to the server (the machine's card in the web panel).
 	agentFleet := fleet.New()
+	tools.SetSubagentDefault(cfg.SubagentIterations)
 	stopAgentsFeed := s.attachAgents(subagent.NewManager(agentFleet))
 	agentReport := fleet.StartReporter(agentFleet, fleet.HTTPSender(cfg.APIBase, fleet.SavedToken), opts.Cwd, 0)
 	defer func() {
@@ -1283,6 +1288,14 @@ loop:
 				// Бюджет размышлений зашит в клиента — пересоздаём, иначе
 				// настройка «применилась» бы только со следующего запуска.
 				cli = llmpick.Client(cfg, subs, currentID, providerFor(currentID), cr.Token)
+				s.emit(Out{Type: "notice", Text: msg})
+				s.emit(stateOut())
+			case "set_subagent_iterations":
+				msg, err := setSubagentIterations(cfg, in.Value)
+				if err != nil {
+					s.emit(Out{Type: "error", Text: err.Error()})
+					break
+				}
 				s.emit(Out{Type: "notice", Text: msg})
 				s.emit(stateOut())
 			case "set_max_iterations":

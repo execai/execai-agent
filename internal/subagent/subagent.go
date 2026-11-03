@@ -29,6 +29,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/velesbsdllc/agent-vbai/internal/agent"
@@ -39,10 +40,43 @@ import (
 	"github.com/velesbsdllc/agent-vbai/internal/tools"
 )
 
-// DefaultTimeout bounds one subagent. Every iteration is billed to the
-// person's provider quota, and a subagent that keeps finding one more file
-// to read must stop somewhere.
-const DefaultTimeout = 5 * time.Minute
+// DefaultTimeout is a safety net against a run that hangs. Spending is
+// bounded by MaxIterations, not by time: a real task (a build, a refactor,
+// a slow model) easily takes longer than a few minutes, and the old 5-minute
+// limit killed subagents in the middle of their work. The clock starts when
+// the subagent gets a slot, so time in the queue does not count.
+const DefaultTimeout = 2 * time.Hour
+
+// TimeoutLimit reads EXECAI_SUBAGENT_TIMEOUT: a duration ("90m", "3h"), a
+// bare number of minutes, or "0"/"off" for no limit.
+func TimeoutLimit() time.Duration {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("EXECAI_SUBAGENT_TIMEOUT")))
+	switch v {
+	case "":
+		return DefaultTimeout
+	case "off", "none", "no":
+		return 0
+	}
+	if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+		return time.Duration(n) * time.Minute
+	}
+	if d, err := time.ParseDuration(v); err == nil && d >= 0 {
+		return d
+	}
+	return DefaultTimeout
+}
+
+// shortDuration prints 2h0m0s as 2h and 5m0s as 5m.
+func shortDuration(d time.Duration) string {
+	s := d.String()
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+	return s
+}
 
 // DefaultParallel — how many subagents of one process work at the same time.
 const DefaultParallel = 4
@@ -92,17 +126,33 @@ type Manager struct {
 	closed bool
 }
 
-// run is one subagent's bookkeeping.
+// run is one subagent's bookkeeping. A subagent continued after it hit its
+// step limit gets a new run under the same id (see Extend).
 type run struct {
 	id, parent, title string
 	background        bool
 	cancel            context.CancelFunc
 	done              chan struct{}
 
+	// What a continuation needs. Set before the run starts.
+	req  tools.SubagentRequest
+	deps Deps
+	cli  llm.StreamingLLM
+	cwd  string
+	sess *sessions.Session
+	base int // steps made by the runs before this one
+
+	// limit — steps allowed in total, base included. Extend raises it
+	// (under Manager.mu); the loop reads it before every step.
+	limit atomic.Int64
+
 	// Set once done is closed.
-	state  fleet.State
-	result string
-	err    error
+	state     fleet.State
+	result    string
+	err       error
+	hist      []llm.AIMessage
+	used      int  // steps made in total, base included
+	exhausted bool // stopped at the limit, not by its own answer
 
 	// Under Manager.mu.
 	collected bool // the parent got the result (Task, TaskWait, an automatic message)
@@ -117,7 +167,7 @@ func NewManager(f *fleet.Fleet) *Manager {
 	}
 	base, cancel := context.WithCancel(context.Background())
 	return &Manager{
-		fleet: f, sem: make(chan struct{}, ParallelLimit()), timeout: DefaultTimeout,
+		fleet: f, sem: make(chan struct{}, ParallelLimit()), timeout: TimeoutLimit(),
 		base: base, stopAll: cancel, runs: map[string]*run{},
 	}
 }
@@ -185,7 +235,7 @@ func (r *Runner) Run(ctx context.Context, req tools.SubagentRequest) (string, er
 		return "", tools.ErrSubagentUnavailable
 	}
 	if req.MaxIterations <= 0 {
-		req.MaxIterations = tools.SubagentDefaultIterations
+		req.MaxIterations = tools.SubagentDefault()
 	}
 	if req.MaxIterations > tools.SubagentMaxIterations {
 		req.MaxIterations = tools.SubagentMaxIterations
@@ -193,15 +243,17 @@ func (r *Runner) Run(ctx context.Context, req tools.SubagentRequest) (string, er
 
 	m := r.m
 	rn := &run{id: newID(), parent: d.ParentChat, title: req.Description, background: req.Background,
-		done: make(chan struct{})}
+		done: make(chan struct{}), req: req, deps: d, cli: cli, cwd: cwd}
+	rn.limit.Store(int64(req.MaxIterations))
 	var runCtx context.Context
 	var cancel context.CancelFunc
 	if req.Background {
 		// Outlives the turn that started it; stopped with the parent's
 		// chat (CancelParent), by the person (Stop) or on exit (Shutdown).
-		runCtx, cancel = context.WithTimeout(m.base, m.timeout)
+		// The time limit is set in execute, once a slot is taken.
+		runCtx, cancel = context.WithCancel(m.base)
 	} else {
-		runCtx, cancel = context.WithTimeout(ctx, m.timeout)
+		runCtx, cancel = context.WithCancel(ctx)
 		stopOnExit := context.AfterFunc(m.base, cancel)
 		defer stopOnExit()
 	}
@@ -224,6 +276,7 @@ func (r *Runner) Run(ctx context.Context, req tools.SubagentRequest) (string, er
 	sess.State = string(fleet.Queued)
 	sess.Messages = []llm.AIMessage{{Role: "user", Content: req.Prompt}}
 	_ = sess.Save()
+	rn.sess = sess
 
 	m.fleet.Add(fleet.Record{
 		ID: rn.id, ParentChat: d.ParentChat, ParentToolCall: req.ToolCall, Title: req.Description,
@@ -234,11 +287,11 @@ func (r *Runner) Run(ctx context.Context, req tools.SubagentRequest) (string, er
 	if req.Background {
 		go func() {
 			defer cancel()
-			m.execute(runCtx, rn, req, d, cli, cwd, sess)
+			m.execute(runCtx, rn, nil, req.Prompt)
 		}()
 		return i18n.Tf("fleet.started", rn.id, rn.title, rn.id), nil
 	}
-	m.execute(runCtx, rn, req, d, cli, cwd, sess)
+	m.execute(runCtx, rn, nil, req.Prompt)
 	cancel()
 	m.mu.Lock()
 	rn.collected = true
@@ -250,15 +303,23 @@ func (r *Runner) Run(ctx context.Context, req tools.SubagentRequest) (string, er
 }
 
 // execute runs the subagent's loop and records the outcome. It closes rn.done.
-func (m *Manager) execute(ctx context.Context, rn *run, req tools.SubagentRequest, d Deps,
-	cli llm.StreamingLLM, cwd string, sess *sessions.Session) {
-	st := &streamer{fleet: m.fleet, id: rn.id}
-	var hist []llm.AIMessage
+// hist is the history to go on from (nil for a new subagent), prompt the
+// message that starts this run.
+func (m *Manager) execute(ctx context.Context, rn *run, hist []llm.AIMessage, prompt string) {
+	req, d, cli, cwd, sess := rn.req, rn.deps, rn.cli, rn.cwd, rn.sess
+	st := &streamer{fleet: m.fleet, id: rn.id, base: rn.base}
+	prior := hist
 	var runErr error
 	exhausted := false
+	timedOut := false
 
 	select {
 	case m.sem <- struct{}{}:
+		parentCtx := ctx
+		stopClock := context.CancelFunc(func() {})
+		if m.timeout > 0 {
+			ctx, stopClock = context.WithTimeout(parentCtx, m.timeout)
+		}
 		m.fleet.Update(rn.id, func(r *fleet.Record) { r.State = fleet.Running })
 		write := req.Mode == "write"
 		var ap agent.Approver = denyAll{}
@@ -267,7 +328,7 @@ func (m *Manager) execute(ctx context.Context, rn *run, req tools.SubagentReques
 				fleet: m.fleet}
 		}
 		a := agent.New(cli, tools.ForSubagent(cwd, write), systemPrompt(write, cwd), ap, st)
-		a.MaxIterations = req.MaxIterations
+		a.IterationLimit = func() int { return int(rn.limit.Load()) - rn.base }
 		a.Checkpoint = func(h []llm.AIMessage, promptTokens int) {
 			sess.Messages = append([]llm.AIMessage(nil), h...)
 			sess.State = string(fleet.Running)
@@ -276,11 +337,17 @@ func (m *Manager) execute(ctx context.Context, rn *run, req tools.SubagentReques
 				m.fleet.Update(rn.id, func(r *fleet.Record) { r.PromptTokens = promptTokens })
 			}
 		}
-		hist, runErr = a.Run(ctx, nil, req.Prompt)
+		hist, runErr = a.Run(ctx, prior, prompt)
 		exhausted = a.Exhausted
+		timedOut = parentCtx.Err() == nil && errors.Is(ctx.Err(), context.DeadlineExceeded)
+		stopClock()
+		ctx = parentCtx
 		<-m.sem
 	case <-ctx.Done():
 		runErr = ctx.Err()
+	}
+	if len(hist) == 0 {
+		hist = prior
 	}
 
 	answer := lastAssistantText(hist, exhausted)
@@ -293,8 +360,8 @@ func (m *Manager) execute(ctx context.Context, rn *run, req tools.SubagentReques
 	stopped := rn.stopped
 	m.mu.Unlock()
 	switch {
-	case ctx.Err() != nil && errors.Is(ctx.Err(), context.DeadlineExceeded):
-		state, err = fleet.Failed, errors.New(i18n.Tf("fleet.result.timeout", m.timeout))
+	case timedOut:
+		state, err = fleet.Failed, errors.New(i18n.Tf("fleet.result.timeout", shortDuration(m.timeout)))
 	case ctx.Err() != nil:
 		state = fleet.Cancelled
 		err = errors.New(i18n.T("fleet.result.cancelled"))
@@ -303,11 +370,14 @@ func (m *Manager) execute(ctx context.Context, rn *run, req tools.SubagentReques
 		}
 	case runErr != nil:
 		state, err = fleet.Failed, runErr
-	case answer == "":
+	case answer == "" && !exhausted:
 		state, err = fleet.Failed, errors.New(i18n.T("subagent.emptyResult"))
 	}
-	if state == fleet.Done && exhausted {
-		answer += "\n\n" + i18n.Tf("fleet.result.limit", req.MaxIterations)
+	// One that spent every step on tools without a word is not a failure:
+	// it stopped at its limit and can be continued.
+	exhausted = exhausted && state == fleet.Done
+	if exhausted {
+		answer = strings.TrimSpace(answer + "\n\n" + i18n.Tf("fleet.result.limit", rn.limit.Load(), rn.id))
 	}
 
 	if len(hist) > 0 {
@@ -320,6 +390,7 @@ func (m *Manager) execute(ctx context.Context, rn *run, req tools.SubagentReques
 	m.fleet.Update(rn.id, func(r *fleet.Record) {
 		r.State = state
 		r.Result = answer
+		r.Exhausted = exhausted
 		r.FinishedAt = &now
 		if answer != "" {
 			r.Preview = answer
@@ -330,6 +401,7 @@ func (m *Manager) execute(ctx context.Context, rn *run, req tools.SubagentReques
 	})
 
 	rn.state, rn.result, rn.err = state, answer, err
+	rn.hist, rn.used, rn.exhausted = hist, st.steps(), exhausted
 	m.mu.Lock()
 	notify := rn.background && !rn.collected && rn.waiters == 0
 	m.mu.Unlock()
@@ -561,6 +633,92 @@ func (m *Manager) Stop(id string) bool {
 	m.mu.Unlock()
 	cancel()
 	return true
+}
+
+// Extend gives subagent id more steps (steps <= 0: tools.SubagentExtendStep)
+// on the person's behalf: a click in the panel, /agents more. A working one
+// gets a higher limit at once; one that stopped at its limit goes on in the
+// background from where it stopped. The text says what happened.
+func (m *Manager) Extend(id string, steps int) (string, error) {
+	return m.extend(id, steps, "", nil)
+}
+
+// Extend is TaskExtend: the parent model may extend only its own subagents.
+// A continued subagent asks and reports through this turn's approver and
+// notifier.
+func (r *Runner) Extend(_ context.Context, id string, steps int) (string, error) {
+	return r.m.extend(id, steps, r.d.ParentChat, &r.d)
+}
+
+func (m *Manager) extend(id string, steps int, parent string, turn *Deps) (string, error) {
+	if steps <= 0 {
+		steps = tools.SubagentExtendStep
+	}
+	m.mu.Lock()
+	rn := m.runs[id]
+	if rn == nil || (parent != "" && rn.parent != parent) {
+		m.mu.Unlock()
+		return "", errors.New(i18n.Tf("fleet.wait.unknown", id))
+	}
+	finished := false
+	select {
+	case <-rn.done:
+		finished = true
+	default:
+	}
+
+	if !finished {
+		cur := int(rn.limit.Load())
+		if cur >= tools.SubagentCeiling {
+			m.mu.Unlock()
+			return "", errors.New(i18n.Tf("fleet.extend.ceiling", rn.title, tools.SubagentCeiling))
+		}
+		limit := min(cur+steps, tools.SubagentCeiling)
+		rn.limit.Store(int64(limit))
+		m.mu.Unlock()
+		var iter int
+		m.fleet.Update(id, func(r *fleet.Record) { r.MaxIter = limit; iter = r.Iter })
+		return i18n.Tf("fleet.extend.raised", rn.title, limit-cur, iter, limit), nil
+	}
+
+	if rn.state != fleet.Done || !rn.exhausted {
+		m.mu.Unlock()
+		return "", errors.New(i18n.Tf("fleet.extend.finished", rn.title, StateLabel(rn.state)))
+	}
+	if rn.used >= tools.SubagentCeiling {
+		m.mu.Unlock()
+		return "", errors.New(i18n.Tf("fleet.extend.ceiling", rn.title, tools.SubagentCeiling))
+	}
+	if m.closed {
+		m.mu.Unlock()
+		return "", ErrClosed
+	}
+	limit := min(rn.used+steps, tools.SubagentCeiling)
+	next := &run{id: rn.id, parent: rn.parent, title: rn.title, background: true,
+		done: make(chan struct{}), req: rn.req, deps: rn.deps, cli: rn.cli, cwd: rn.cwd, sess: rn.sess,
+		base: rn.used}
+	if turn != nil {
+		next.deps.Approver, next.deps.Notify = turn.Approver, turn.Notify
+	}
+	next.limit.Store(int64(limit))
+	ctx, cancel := context.WithCancel(m.base)
+	next.cancel = cancel
+	// The finished run leaves the table: its result is superseded by the
+	// continuation's, which reaches the parent as a background one does.
+	m.runs[id] = next
+	m.mu.Unlock()
+
+	m.fleet.Update(id, func(r *fleet.Record) {
+		r.State, r.Exhausted, r.FinishedAt = fleet.Queued, false, nil
+		r.Result, r.Error = "", ""
+		r.MaxIter = limit
+	})
+	added := limit - rn.used
+	go func() {
+		defer cancel()
+		m.execute(ctx, next, rn.hist, i18n.Tf("fleet.extend.prompt", added))
+	}()
+	return i18n.Tf("fleet.extend.resumed", rn.title, rn.used, added, limit, id), nil
 }
 
 // CancelParent stops every subagent of a parent — the person stopped the

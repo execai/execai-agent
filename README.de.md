@@ -188,7 +188,9 @@ Navigation: ← → oder Tab zum Fokus wechseln, Enter zum Bestätigen, oder die
 | **WebFetch** | Öffnet eine Seite: HTML → lesbarer Text + Links zum Weitergehen (kein JS) |
 | **WebSearch** | Websuche mit Antwort und Quellenangaben (ExecAI-Konto nötig) |
 | **AskUser** | Stellt eine Frage mit 2–4 Optionen, wenn die Entscheidung bei dir liegt |
-| **Task** | Übergibt eine abgeschlossene Recherche an einen Nur-Lese-Subagenten |
+| **Task** | Übergibt eine Teilaufgabe an einen Subagenten: mehrere arbeiten parallel, nur lesend oder mit Bearbeitung |
+| **TaskWait** | Wartet auf Hintergrund-Subagenten und sammelt ihre Ergebnisse |
+| **TaskExtend** | Gibt einem Subagenten mehr Schritte oder setzt einen fort, der sein Limit erreicht hat |
 | **TodoWrite** | Interner Aufgaben-Planner des Agenten |
 | **schedule_wakeup** | Die KI plant ihr eigenes Aufwachen in N Sekunden (siehe [Autoloop](#loop-und-autoloop--wiederholen-und-warten)) |
 | **wait** | Wartet innerhalb des Zuges: N Sekunden oder bis ein Shell-Check gelingt (`until`, alle `interval` s geprüft; bis 30 Min.) |
@@ -510,6 +512,7 @@ Wenn die KI entscheidet, dass die Aufgabe erledigt ist — ruft sie einfach kein
 Die siebte Linie ist das bisher größte Update des Agenten. Vollständige Notizen (Russisch): [scripts/release-notes](scripts/release-notes/).
 
 - **Subagenten, parallel.** Das Modell verteilt Teilaufgaben mit dem Werkzeug `Task`: mehrere `Task`-Aufrufe in einer Antwort laufen gleichzeitig, `background: true` hält das Gespräch am Laufen, `TaskWait` sammelt die Ergebnisse. Modus `read` (nur lesende Werkzeuge, fragt nie) oder `write` (bearbeitende Werkzeuge; Berechtigungen werden bei dir erfragt, mit dem Namen des Agenten markiert), Modell `same | fast | <id>`. Wer was tut: der Block **„Agenten“** über der Eingabe, `/agents`, `/agents open N`, `/agents stop N`; dieselbe Liste im Editor-Panel und auf der Maschinenkarte auf execai.ru.
+- **Schritte der Subagenten sichtbar und verlängerbar (7.8).** Standardmäßig 50 Schritte, bis zu 100 zum Start; „Schritt 12/50 · noch 38“ im Agenten-Block und im Panel. Mehr Schritte unterwegs: **+25** im Panel, `/agents more N [Schritte]` oder das Modell selbst mit `TaskExtend`; ein Subagent am Limit lässt sich dort fortsetzen, wo er aufgehört hat. Standard für neue: `/agents limit N` oder das Panel-Menü. Kein Abbruch nach fünf Minuten mehr: nur ein Sicherheitslimit von 2 Stunden gegen einen hängenden Lauf (`EXECAI_SUBAGENT_TIMEOUT`, `0` — keins).
 - **Aufgaben von der Website landen im Editor-Panel.** Ein VS-Code- / ExecAI-Studio-Fenster mit geöffnetem Projekt nimmt Aufgaben aus dem Web-Chat oder vom Telefon selbst an: die Aufgabe öffnet sich als Chat mit der Markierung „von der Website“, eine Berechtigungsfrage erreicht Panel und Website. Projekt im Panel-Menü binden. Pläne Work und Max.
 - **Das Panel im Browser — `execai ui`.** Dasselbe Panel ohne Editor: ein Einmal-Link auf 127.0.0.1 — [Anleitung](docs/en/ui.md).
 - **Sync mit Passphrase — `execai sync on`.** Gedächtnis, Einstellungen und Anbieter-Schlüssel werden auf deinen Rechnern mit einer Sync-Passphrase verschlüsselt; der Server speichert nur Chiffretext und kann ihn nicht lesen. Projekte synchronisieren sich pro Projekt: `/project publish` macht aus einem Ordner ein Web-Projekt, `/project bind` entpackt ein Web-Projekt in einen Ordner. Pläne Work und Max; `execai sync keys export|import` überträgt Anbieter-Schlüssel direkt, ohne Server und ohne Plan — [Anleitung](docs/en/sync.md).

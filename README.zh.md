@@ -188,7 +188,9 @@ Agent 会：
 | **WebFetch** | 打开网页：HTML → 可读文本 + 可继续访问的链接（不执行 JS） |
 | **WebSearch** | 联网搜索，返回答案与引用来源（需要 ExecAI 账号） |
 | **AskUser** | 当决定权在你时，提出带 2–4 个选项的问题 |
-| **Task** | 把独立的调研任务交给只读子智能体 |
+| **Task** | 把子任务交给子智能体：多个并行运行，只读或可编辑 |
+| **TaskWait** | 等待后台子智能体并收集结果 |
+| **TaskExtend** | 给子智能体增加步数，或让到达上限的子智能体继续 |
 | **TodoWrite** | Agent 内部的任务规划器 |
 | **schedule_wakeup** | AI 自己安排 N 秒后唤醒（详见 [Autoloop](#loop-和-autoloop--重复与等待)） |
 | **wait** | 在本轮内等待：N 秒，或直到 shell 检查成功（`until`，每 `interval` 秒轮询一次；最长 30 分钟） |
@@ -510,6 +512,7 @@ AI 会：
 第七代是迄今最大的一次更新。完整说明（俄文）：[scripts/release-notes](scripts/release-notes/)。
 
 - **并行子代理。** 模型用 `Task` 工具分派子任务：同一条回复中的多个 `Task` 同时运行，`background: true` 不会打断对话，`TaskWait` 收集结果。模式 `read`（只读工具，从不提问）或 `write`（编辑工具；权限会向你询问，并标注代理名称），模型 `same | fast | <id>`。谁在做什么：输入框上方的 **「代理」** 区块、`/agents`、`/agents open N`、`/agents stop N`；编辑器面板和 execai.ru 的机器卡片上显示同一份列表。
+- **子代理步数可见、可延长（7.8）。** 默认 50 步，启动时最多 100 步；「代理」区块和面板中显示「第 12/50 步 · 剩 38」。随时加步数：面板中的 **+25**、`/agents more N [步数]`，或由模型自己调用 `TaskExtend`；到达上限的子代理可以从停下的地方继续。新子代理的默认值：`/agents limit N` 或面板菜单。不再有五分钟强制中断：只保留 2 小时的安全上限，防止卡死（`EXECAI_SUBAGENT_TIMEOUT`，`0` 表示不限）。
 - **来自网站的任务直接进入编辑器面板。** 打开项目的 VS Code / ExecAI Studio 窗口会自动接收来自网页聊天或手机的任务：任务以带「来自网站」标记的聊天形式出现，权限询问同时到达面板和网站。在面板菜单中绑定项目。Work 和 Max 套餐。
 - **浏览器中的面板 — `execai ui`。** 不需要编辑器的同一面板：127.0.0.1 上的一次性链接 — [指南](docs/en/ui.md)。
 - **带口令的同步 — `execai sync on`。** 记忆、设置和提供商密钥在你的机器上用同步口令加密；服务器只保存密文，无法读取。项目按项目同步：`/project publish` 把文件夹变成网页项目，`/project bind` 把网页项目展开到文件夹。Work 和 Max 套餐；`execai sync keys export|import` 直接传递提供商密钥，不经过服务器，也不需要套餐 — [指南](docs/en/sync.md)。

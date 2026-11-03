@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -189,3 +190,50 @@ func (r *recRunner) Run(_ context.Context, req SubagentRequest) (string, error) 
 }
 
 func (r *recRunner) Wait(_ context.Context, id string) (string, error) { return "waited " + id, nil }
+func (r *recRunner) Extend(_ context.Context, id string, steps int) (string, error) {
+	return "extended " + id + " by " + strconv.Itoa(steps), nil
+}
+
+// The default for new subagents follows the setting and never goes above
+// the most a subagent may start with.
+func TestSubagentDefault_Configurable(t *testing.T) {
+	defer SetSubagentDefault(0)
+	if SubagentDefault() != SubagentDefaultIterations || SubagentDefaultIterations != 50 || SubagentMaxIterations != 100 {
+		t.Fatalf("defaults %d/%d/%d", SubagentDefault(), SubagentDefaultIterations, SubagentMaxIterations)
+	}
+	SetSubagentDefault(80)
+	req, err := ParseSubagentRequest(json.RawMessage(`{"prompt":"p"}`))
+	if err != nil || req.MaxIterations != 80 {
+		t.Errorf("configured default: %d %v", req.MaxIterations, err)
+	}
+	SetSubagentDefault(1000)
+	if SubagentDefault() != SubagentMaxIterations {
+		t.Errorf("default above the maximum: %d", SubagentDefault())
+	}
+	SetSubagentDefault(0)
+	if SubagentDefault() != SubagentDefaultIterations {
+		t.Errorf("reset: %d", SubagentDefault())
+	}
+}
+
+// TaskExtend reaches the turn's runner; a subagent cannot extend anything.
+func TestTaskExtend(t *testing.T) {
+	ctx := WithSubagentRunner(context.Background(), &recRunner{})
+	out, err := (&TaskExtendTool{}).Execute(ctx, json.RawMessage(`{"id":"sa-1","steps":30}`))
+	if err != nil || out != "extended sa-1 by 30" {
+		t.Errorf("extend: %q %v", out, err)
+	}
+	out, _ = (&TaskExtendTool{}).Execute(ctx, json.RawMessage(`{"id":"sa-1","steps":5000}`))
+	if out != "extended sa-1 by 100" {
+		t.Errorf("one call gives at most SubagentMaxIterations: %q", out)
+	}
+	if _, err := (&TaskExtendTool{}).Execute(ctx, json.RawMessage(`{}`)); err == nil {
+		t.Error("no id accepted")
+	}
+	if _, ok := Default(".").Get("TaskExtend"); !ok {
+		t.Error("the main agent has no TaskExtend")
+	}
+	if _, ok := ForSubagent(".", true).Get("TaskExtend"); ok {
+		t.Error("a write subagent has TaskExtend")
+	}
+}

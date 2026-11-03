@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 )
 
 // TaskTool delegates a self-contained piece of work to a subagent: its own
@@ -48,6 +49,11 @@ type SubagentRunner interface {
 	// every unfinished or unread one of this parent) is done and returns
 	// what it found.
 	Wait(ctx context.Context, id string) (string, error)
+	// Extend gives a subagent of this parent more steps: a working one
+	// gets a higher limit at once, one that stopped at its limit goes on in
+	// the background from where it stopped. steps <= 0 means
+	// SubagentExtendStep.
+	Extend(ctx context.Context, id string, steps int) (string, error)
 }
 
 type subagentRunnerKey struct{}
@@ -99,11 +105,43 @@ func SetSubagentRunner(f func(ctx context.Context, description, prompt string) (
 // inside a subagent).
 var ErrSubagentUnavailable = errors.New("субагенты недоступны в этом режиме")
 
-// Subagent limits shared by every host.
+// Subagent step limits shared by every host.
 const (
-	SubagentDefaultIterations = 15
-	SubagentMaxIterations     = 50
+	// SubagentDefaultIterations — steps of a new subagent unless the person
+	// set another default (SetSubagentDefault, /agents limit, the panel menu).
+	SubagentDefaultIterations = 50
+	// SubagentMaxIterations — the most a subagent may start with.
+	SubagentMaxIterations = 100
+	// SubagentExtendStep — one "more steps": a click, /agents more, or
+	// TaskExtend without steps.
+	SubagentExtendStep = 25
+	// SubagentCeiling — no subagent gets more steps than this in total,
+	// however often it is extended.
+	SubagentCeiling = 500
 )
+
+var subagentDefault atomic.Int32
+
+// SubagentDefault — steps of a new subagent when the Task call names none.
+func SubagentDefault() int {
+	if n := int(subagentDefault.Load()); n > 0 {
+		return n
+	}
+	return SubagentDefaultIterations
+}
+
+// SetSubagentDefault changes the default for new subagents of this process
+// (0 restores SubagentDefaultIterations); hosts call it with the config
+// value. Values above SubagentMaxIterations are cut to it.
+func SetSubagentDefault(n int) {
+	if n < 0 {
+		n = 0
+	}
+	if n > SubagentMaxIterations {
+		n = SubagentMaxIterations
+	}
+	subagentDefault.Store(int32(n))
+}
 
 func (*TaskTool) Spec() Spec {
 	return Spec{
@@ -144,8 +182,9 @@ func (*TaskTool) Spec() Spec {
 					"description": "Каталог субагента относительно твоего (не выше него). По умолчанию — твой.",
 				},
 				"max_iterations": map[string]any{
-					"type":        "integer",
-					"description": fmt.Sprintf("Предел шагов субагента (по умолчанию %d, максимум %d).", SubagentDefaultIterations, SubagentMaxIterations),
+					"type": "integer",
+					"description": fmt.Sprintf("Предел шагов субагента (по умолчанию %d, максимум %d). "+
+						"Не хватило — продли через TaskExtend.", SubagentDefault(), SubagentMaxIterations),
 				},
 				"background": map[string]any{
 					"type":        "boolean",
@@ -207,7 +246,7 @@ func ParseSubagentRequest(args json.RawMessage) (SubagentRequest, error) {
 	case p.MaxIterations < 0:
 		return req, fmt.Errorf("max_iterations не может быть отрицательным")
 	case p.MaxIterations == 0:
-		req.MaxIterations = SubagentDefaultIterations
+		req.MaxIterations = SubagentDefault()
 	case p.MaxIterations > SubagentMaxIterations:
 		req.MaxIterations = SubagentMaxIterations
 	default:
@@ -229,6 +268,62 @@ func (t *TaskTool) Execute(ctx context.Context, args json.RawMessage) (string, e
 		return "", ErrSubagentUnavailable
 	}
 	return subagentFunc(ctx, req.Description, req.Prompt)
+}
+
+// TaskExtendTool gives a subagent more steps: the main model sees "stopped
+// at its limit" (or a background one close to it) and decides to let it
+// finish instead of starting over.
+type TaskExtendTool struct{}
+
+func (*TaskExtendTool) Spec() Spec {
+	return Spec{
+		Name: "TaskExtend",
+		Description: fmt.Sprintf("Дать субагенту ещё шагов. Работающему (в фоне) предел поднимется сразу; "+
+			"субагент, который остановился на пределе шагов («остановлен на пределе»), продолжит с того же места "+
+			"в фоне — итог придёт отдельным сообщением или через TaskWait с тем же id. Продлевай, когда субагент "+
+			"явно движется к цели и ему не хватило; если он ходит по кругу — лучше переформулируй задачу новым Task. "+
+			"Всего у одного субагента не больше %d шагов.", SubagentCeiling),
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "id субагента (из ответа Task или его итога).",
+				},
+				"steps": map[string]any{
+					"type":        "integer",
+					"description": fmt.Sprintf("Сколько шагов добавить (по умолчанию %d, за раз не больше %d).", SubagentExtendStep, SubagentMaxIterations),
+				},
+			},
+			"required":             []string{"id"},
+			"additionalProperties": false,
+		},
+	}
+}
+
+// More steps cost only the person's own quota, the same as Task itself.
+func (*TaskExtendTool) RequiresApproval(json.RawMessage) bool { return false }
+
+func (*TaskExtendTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
+	var p struct {
+		ID    string `json:"id"`
+		Steps int    `json:"steps"`
+	}
+	if err := resolveJSON(args, &p); err != nil {
+		return "", err
+	}
+	id := strings.TrimSpace(p.ID)
+	if id == "" {
+		return "", fmt.Errorf("id обязателен")
+	}
+	if p.Steps > SubagentMaxIterations {
+		p.Steps = SubagentMaxIterations
+	}
+	r := SubagentRunnerFrom(ctx)
+	if r == nil {
+		return "", ErrSubagentUnavailable
+	}
+	return r.Extend(ctx, id, p.Steps)
 }
 
 // TaskWaitTool waits for background subagents started with Task.

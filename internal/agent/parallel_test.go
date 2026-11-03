@@ -67,7 +67,8 @@ func (r *sleepyRunner) Run(ctx context.Context, req tools.SubagentRequest) (stri
 	return "result of " + req.Description, nil
 }
 
-func (r *sleepyRunner) Wait(context.Context, string) (string, error) { return "", nil }
+func (r *sleepyRunner) Wait(context.Context, string) (string, error)        { return "", nil }
+func (r *sleepyRunner) Extend(context.Context, string, int) (string, error) { return "", nil }
 
 // idStreamer records start/end keys.
 type idStreamer struct {

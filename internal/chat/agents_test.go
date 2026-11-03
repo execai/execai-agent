@@ -113,3 +113,68 @@ func TestTaskCard(t *testing.T) {
 		t.Errorf("result %q", got)
 	}
 }
+
+// Steps left are shown; few left are flagged with how to give more; one
+// that hit its limit says so.
+func TestAgentsBlock_StepsLeft(t *testing.T) {
+	i18n.SetLocale("en")
+	m := &tuiModel{width: 200, cfg: &config.Config{}, session: &sessions.Session{ID: "chat-1"}}
+	now := time.Now()
+	m.fleetRecs = []fleet.Record{
+		{ID: "sa-1", ParentChat: "chat-1", Title: "plenty", State: fleet.Running, Iter: 12, MaxIter: 50, StartedAt: now},
+		{ID: "sa-2", ParentChat: "chat-1", Title: "almost out", State: fleet.Running, Iter: 47, MaxIter: 50, StartedAt: now},
+	}
+	block := m.renderAgentsBlock()
+	for _, want := range []string{"step 12/50 · 38 left", "step 47/50 · 3 left", "/agents more sa-2"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("block lacks %q:\n%s", want, block)
+		}
+	}
+	if strings.Contains(block, "/agents more sa-1") {
+		t.Errorf("a subagent with plenty of steps is flagged:\n%s", block)
+	}
+	if got, _ := stepsLabel(fleet.Record{State: fleet.Done, Iter: 50, MaxIter: 50, Exhausted: true}); got != "50/50 · hit the step limit" {
+		t.Errorf("exhausted label %q", got)
+	}
+}
+
+// /agents limit shows and changes the default for new subagents and saves
+// it; /agents more refuses one that finished by itself.
+func TestAgentsCommand_LimitAndMore(t *testing.T) {
+	i18n.SetLocale("en")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home)
+	defer tools.SetSubagentDefault(0)
+	m := &tuiModel{cfg: &config.Config{}, session: &sessions.Session{ID: "chat-1"}}
+	m.fleet = fleet.New()
+	m.agents = subagent.NewManager(m.fleet)
+
+	if out := m.agentsCommand("limit"); !strings.Contains(out, "50") {
+		t.Errorf("limit: %q", out)
+	}
+	if out := m.agentsCommand("limit 80"); !strings.Contains(out, "80") || m.cfg.SubagentIterations != 80 ||
+		tools.SubagentDefault() != 80 {
+		t.Errorf("limit 80: %q cfg %d default %d", out, m.cfg.SubagentIterations, tools.SubagentDefault())
+	}
+	if saved, err := config.Load(); err != nil || saved.SubagentIterations != 80 {
+		t.Errorf("not saved: %+v %v", saved, err)
+	}
+	if out := m.agentsCommand("limit 500"); !strings.Contains(out, "from 1 to 100") {
+		t.Errorf("limit 500: %q", out)
+	}
+
+	r := m.agents.Runner(subagent.Deps{Client: tuiFakeLLM{}, Cwd: t.TempDir(), ParentChat: "chat-1"})
+	if _, err := r.Run(context.Background(), tools.SubagentRequest{Description: "quick", Prompt: "p", Mode: "read"}); err != nil {
+		t.Fatal(err)
+	}
+	if rec := m.fleet.Snapshot()[0]; rec.MaxIter != 80 {
+		t.Errorf("new subagent got %d steps, want 80", rec.MaxIter)
+	}
+	if out := m.agentsCommand("more 1"); !strings.Contains(out, "already finished") {
+		t.Errorf("more on a finished one: %q", out)
+	}
+	if out := m.agentsCommand("more 1 abc"); !strings.Contains(out, "usage") {
+		t.Errorf("bad steps: %q", out)
+	}
+}

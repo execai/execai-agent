@@ -39,19 +39,21 @@ const PreviewLimit = 200
 
 // Record is one subagent. Field names are the shared contract.
 type Record struct {
-	ID             string     `json:"id"`
-	ParentChat     string     `json:"parent_chat"`
-	ParentToolCall string     `json:"parent_tool_call"`
-	Title          string     `json:"title"`
-	State          State      `json:"state"`
-	Mode           string     `json:"mode"` // read | write
-	Iter           int        `json:"iter"`
-	MaxIter        int        `json:"max_iter"`
-	LastTool       string     `json:"last_tool"`
-	StartedAt      time.Time  `json:"started_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	FinishedAt     *time.Time `json:"finished_at,omitempty"`
-	Preview        string     `json:"preview"`
+	ID             string `json:"id"`
+	ParentChat     string `json:"parent_chat"`
+	ParentToolCall string `json:"parent_tool_call"`
+	Title          string `json:"title"`
+	State          State  `json:"state"`
+	Mode           string `json:"mode"` // read | write
+	Iter           int    `json:"iter"`
+	MaxIter        int    `json:"max_iter"` // raised while it works when someone gives it more steps
+	// Exhausted — finished because it hit MaxIter; it can be continued.
+	Exhausted  bool       `json:"exhausted,omitempty"`
+	LastTool   string     `json:"last_tool"`
+	StartedAt  time.Time  `json:"started_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	Preview    string     `json:"preview"`
 	// Result — the subagent's final answer. Local only: the report to the
 	// server leaves it out (see ForReport).
 	Result       string `json:"result,omitempty"`

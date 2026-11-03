@@ -188,7 +188,9 @@ Navegación: ← → o Tab para mover el foco, Enter para confirmar, o los atajo
 | **WebFetch** | Abre una página: HTML → texto legible + enlaces para seguir (sin JS) |
 | **WebSearch** | Búsqueda web con respuesta y fuentes citadas (requiere cuenta ExecAI) |
 | **AskUser** | Hace una pregunta con 2–4 opciones cuando la decisión es tuya |
-| **Task** | Delega una investigación autónoma a un subagente de solo lectura |
+| **Task** | Pasa una subtarea a un subagente: varios trabajan en paralelo, solo lectura o con edición |
+| **TaskWait** | Espera a los subagentes en segundo plano y recoge sus resultados |
+| **TaskExtend** | Da más pasos a un subagente o continúa uno que llegó a su límite |
 | **TodoWrite** | Planificador de tareas interno del agente |
 | **schedule_wakeup** | La IA programa su propio despertar en N segundos (ver [Autoloop](#loop-y-autoloop--repetir-y-esperar)) |
 | **wait** | Espera dentro del turno: N segundos o hasta que una comprobación de shell tenga éxito (`until`, sondeada cada `interval` s; hasta 30 min) |
@@ -510,6 +512,7 @@ Si la IA decide que la tarea está hecha, simplemente no llama a `schedule_wakeu
 La séptima línea es la mayor actualización del agente hasta ahora. Notas completas (en ruso): [scripts/release-notes](scripts/release-notes/).
 
 - **Subagentes en paralelo.** El modelo reparte subtareas con la herramienta `Task`: varias llamadas `Task` en una misma respuesta corren a la vez, `background: true` no detiene la conversación, `TaskWait` recoge los resultados. Modo `read` (solo lectura, nunca pregunta) o `write` (herramientas de edición; los permisos se te piden a ti, marcados con el nombre del agente), modelo `same | fast | <id>`. Quién hace qué: el bloque **«Agentes»** sobre la entrada, `/agents`, `/agents open N`, `/agents stop N`; la misma lista en el panel del editor y en la tarjeta de la máquina en execai.ru.
+- **Pasos de los subagentes visibles y ampliables (7.8).** 50 pasos por defecto, hasta 100 al empezar; «paso 12/50 · quedan 38» en el bloque Agentes y en el panel. Más pasos sobre la marcha: **+25** en el panel, `/agents more N [pasos]` o el propio modelo con `TaskExtend`; un subagente que llegó al límite puede continuar desde donde se detuvo. Valor por defecto para los nuevos: `/agents limit N` o el menú del panel. Ya no hay corte a los cinco minutos: solo un límite de seguridad de 2 horas contra uno colgado (`EXECAI_SUBAGENT_TIMEOUT`, `0` — sin límite).
 - **Las tareas desde el sitio llegan al panel del editor.** Una ventana de VS Code / ExecAI Studio con un proyecto abierto acepta por sí sola las tareas enviadas desde el chat web o el teléfono: la tarea se abre como un chat con la marca «desde el sitio», y una pregunta de permiso llega al panel y al sitio. Vincula el proyecto desde el menú del panel. Planes Work y Max.
 - **El panel en el navegador — `execai ui`.** El mismo panel sin editor: un enlace de un solo uso en 127.0.0.1 — [guía](docs/en/ui.md).
 - **Sincronización con contraseña — `execai sync on`.** La memoria, los ajustes y las claves de proveedores se cifran en tus máquinas con una contraseña de sincronización; el servidor guarda solo texto cifrado y no puede leerlo. Los proyectos se sincronizan por proyecto: `/project publish` convierte una carpeta en un proyecto web, `/project bind` despliega un proyecto web en una carpeta. Planes Work y Max; `execai sync keys export|import` traslada las claves de proveedores directamente, sin servidor y sin plan — [guía](docs/en/sync.md).

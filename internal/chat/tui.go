@@ -1451,6 +1451,8 @@ var allCommands = []suggestItem{
 	{insert: "/agents", label: "/agents", hint: "hint.agents"},
 	{insert: "/agents open ", label: "/agents open", hint: "hint.agents"},
 	{insert: "/agents stop ", label: "/agents stop", hint: "hint.agents"},
+	{insert: "/agents more ", label: "/agents more", hint: "hint.agents"},
+	{insert: "/agents limit ", label: "/agents limit", hint: "hint.agents"},
 	{insert: "/sessions", label: "/sessions", hint: "hint.sessions"},
 	{insert: "/resume ", label: "/resume", hint: "hint.resume"},
 	{insert: "/new", label: "/new", hint: "hint.new"},

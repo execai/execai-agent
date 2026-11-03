@@ -109,6 +109,7 @@ func Default(cwd string) *Registry {
 	r.Register(&AskUserTool{})
 	r.Register(&TaskTool{})
 	r.Register(&TaskWaitTool{})
+	r.Register(&TaskExtendTool{})
 	return r
 }
 
@@ -133,7 +134,7 @@ func ReadOnly(cwd string) *Registry {
 
 // ForSubagent is the toolset of a subagent. Read mode is ReadOnly. Write
 // mode is the full set minus what only makes sense for the main agent: Task
-// and TaskWait (no recursion — it multiplies the provider quota spend
+// TaskWait and TaskExtend (no recursion — it multiplies the provider quota spend
 // invisibly), AskUser (a subagent cannot ask questions; its permission
 // prompts go through the parent's approver) and schedule_wakeup (a subagent
 // has no next turn to wake up into).
@@ -142,7 +143,7 @@ func ForSubagent(cwd string, write bool) *Registry {
 		return ReadOnly(cwd)
 	}
 	r := Default(cwd)
-	for _, name := range []string{"Task", "TaskWait", "AskUser", "schedule_wakeup"} {
+	for _, name := range []string{"Task", "TaskWait", "TaskExtend", "AskUser", "schedule_wakeup"} {
 		r.Unregister(name)
 	}
 	return r

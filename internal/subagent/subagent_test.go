@@ -3,6 +3,7 @@ package subagent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,7 +96,7 @@ func TestRun_ForegroundRecordAndSession(t *testing.T) {
 	rec := recs[0]
 	if rec.State != fleet.Done || rec.Iter != 2 || rec.LastTool != "Read" || rec.PromptTokens != 100 ||
 		rec.ParentChat != "chat-1" || rec.ParentToolCall != "call-1-0" || rec.Title != "read a" ||
-		rec.Source != "Z.ai" || rec.Model != "glm" || rec.Result != out || rec.FinishedAt == nil || rec.MaxIter != 15 {
+		rec.Source != "Z.ai" || rec.Model != "glm" || rec.Result != out || rec.FinishedAt == nil || rec.MaxIter != tools.SubagentDefaultIterations {
 		t.Errorf("record %+v", rec)
 	}
 	_, sess, err := m.Transcript(rec.ID)
@@ -420,4 +421,251 @@ func waitState(t *testing.T, m *Manager, parent string, want fleet.State) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("%s never became %s: %+v", parent, want, m.Fleet().Snapshot())
+}
+
+// The time limit starts when a subagent gets a slot: one that waited in the
+// queue gets its full limit to work. With the old clock started at Run, the
+// second subagent below ran out of time before it ever began.
+func TestRun_QueueTimeNotCounted(t *testing.T) {
+	cwd := setup(t)
+	m := NewManager(nil)
+	m.SetLimit(1)
+	m.SetTimeout(300 * time.Millisecond)
+
+	busy := m.Runner(Deps{Client: &fakeLLM{block: true}, Cwd: cwd, ParentChat: "p"})
+	first := req("holds the slot")
+	first.Background = true
+	if _, err := busy.Run(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(time.Second); m.Fleet().Snapshot()[0].State != fleet.Running; {
+		if time.Now().After(deadline) {
+			t.Fatal("the first subagent never started")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	r := m.Runner(Deps{Client: &fakeLLM{delay: 200 * time.Millisecond, answer: "queued but fine"},
+		Cwd: cwd, ParentChat: "p"})
+	start := time.Now()
+	out, err := r.Run(context.Background(), req("waits in the queue"))
+	if err != nil || !strings.Contains(out, "queued but fine") {
+		t.Fatalf("queued subagent: %q %v", out, err)
+	}
+	if time.Since(start) < 300*time.Millisecond {
+		t.Error("the second subagent did not wait for the slot")
+	}
+}
+
+func TestTimeoutLimit(t *testing.T) {
+	cases := map[string]time.Duration{
+		"":     DefaultTimeout,
+		"0":    0,
+		"off":  0,
+		"90":   90 * time.Minute,
+		"3h":   3 * time.Hour,
+		"45m":  45 * time.Minute,
+		"junk": DefaultTimeout,
+		"-5m":  DefaultTimeout,
+	}
+	for v, want := range cases {
+		t.Setenv("EXECAI_SUBAGENT_TIMEOUT", v)
+		if got := TimeoutLimit(); got != want {
+			t.Errorf("%q: got %v, want %v", v, got, want)
+		}
+	}
+	if DefaultTimeout < time.Hour {
+		t.Errorf("default limit %v is too short for real work", DefaultTimeout)
+	}
+	for d, want := range map[time.Duration]string{2 * time.Hour: "2h", 5 * time.Minute: "5m",
+		90 * time.Minute: "1h30m", 50 * time.Millisecond: "50ms", 10 * time.Second: "10s"} {
+		if got := shortDuration(d); got != want {
+			t.Errorf("shortDuration(%v) = %q, want %q", d, got, want)
+		}
+	}
+}
+
+// With no limit a subagent still stops when the person stops it.
+func TestRun_NoLimitStillStops(t *testing.T) {
+	cwd := setup(t)
+	t.Setenv("EXECAI_SUBAGENT_TIMEOUT", "0")
+	m := NewManager(nil)
+	r := m.Runner(Deps{Client: &fakeLLM{block: true}, Cwd: cwd, ParentChat: "p"})
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, err := r.Run(ctx, req("forever"))
+	if err == nil {
+		t.Fatal("a cancelled subagent reported success")
+	}
+	if strings.Contains(err.Error(), "did not finish") {
+		t.Errorf("cancel reported as a timeout: %v", err)
+	}
+	if rec := m.Fleet().Snapshot()[0]; rec.State != fleet.Cancelled {
+		t.Errorf("state %q", rec.State)
+	}
+}
+
+// stepLLM calls LS on every step until it has been asked answerAt times
+// (0 — never), then answers. It records the last message it saw.
+type stepLLM struct {
+	delay    time.Duration
+	answerAt int32
+	calls    atomic.Int32
+	mu       sync.Mutex
+	lastUser string
+}
+
+func (f *stepLLM) Stream(ctx context.Context, msgs []llm.AIMessage, _ []map[string]any, cb llm.StreamCallbacks) (*llm.StreamResult, error) {
+	n := f.calls.Add(1)
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "user" {
+			f.mu.Lock()
+			f.lastUser = llm.ContentText(msgs[i].Content)
+			f.mu.Unlock()
+			break
+		}
+	}
+	select {
+	case <-time.After(f.delay):
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	if f.answerAt > 0 && n >= f.answerAt {
+		if cb.OnText != nil {
+			cb.OnText("finished the job")
+		}
+		return &llm.StreamResult{Content: "finished the job"}, nil
+	}
+	return &llm.StreamResult{ToolCalls: []llm.ToolCall{{ID: fmt.Sprintf("t%d", n), Type: "function",
+		Function: llm.ToolCallFunc{Name: "LS", Arguments: `{"path":"."}`}}}}, nil
+}
+
+// A working subagent gets more steps while it works: the loop sees the new
+// limit, the record shows it.
+func TestExtend_RaisesLimitWhileWorking(t *testing.T) {
+	cwd := setup(t)
+	m := NewManager(nil)
+	cli := &stepLLM{delay: 40 * time.Millisecond}
+	r := m.Runner(Deps{Client: cli, Cwd: cwd, ParentChat: "p"})
+	rq := req("long")
+	rq.MaxIterations = 3
+	rq.Background = true
+	if _, err := r.Run(context.Background(), rq); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, m, "p", fleet.Running)
+	id := m.Fleet().Snapshot()[0].ID
+	msg, err := m.Extend(id, 4)
+	if err != nil || !strings.Contains(msg, "4") {
+		t.Fatalf("extend: %q %v", msg, err)
+	}
+	if rec := m.Fleet().Snapshot()[0]; rec.MaxIter != 7 {
+		t.Errorf("max_iter right after extend: %d", rec.MaxIter)
+	}
+	if _, err := r.Wait(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	rec := m.Fleet().Snapshot()[0]
+	if rec.Iter != 7 || rec.MaxIter != 7 || !rec.Exhausted || rec.State != fleet.Done {
+		t.Errorf("record %+v", rec)
+	}
+	if got := cli.calls.Load(); got != 7 {
+		t.Errorf("model asked %d times, want 7", got)
+	}
+}
+
+// A subagent that stopped at its limit goes on from where it stopped when
+// the parent model extends it: same id, same session, steps counted on, the
+// final result reaches the parent through TaskWait.
+func TestExtend_ContinuesExhausted(t *testing.T) {
+	cwd := setup(t)
+	m := NewManager(nil)
+	cli := &stepLLM{answerAt: 5}
+	r := m.Runner(Deps{Client: cli, Cwd: cwd, ParentChat: "p"})
+	rq := req("deep dive")
+	rq.MaxIterations = 2
+	out, err := r.Run(context.Background(), rq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := m.Fleet().Snapshot()[0]
+	if !rec.Exhausted || rec.Iter != 2 || !strings.Contains(out, rec.ID) {
+		t.Fatalf("after the first run: %q %+v", out, rec)
+	}
+
+	other := m.Runner(Deps{Client: cli, Cwd: cwd, ParentChat: "someone else"})
+	if _, err := other.Extend(context.Background(), rec.ID, 3); err == nil {
+		t.Error("another parent extended a subagent that is not its own")
+	}
+
+	msg, err := r.Extend(context.Background(), rec.ID, 3)
+	if err != nil || !strings.Contains(msg, rec.ID) {
+		t.Fatalf("extend: %q %v", msg, err)
+	}
+	res, err := r.Wait(context.Background(), rec.ID)
+	if err != nil || !strings.Contains(res, "finished the job") {
+		t.Fatalf("wait: %q %v", res, err)
+	}
+	after := m.Fleet().Snapshot()[0]
+	if after.ID != rec.ID || after.State != fleet.Done || after.Exhausted || after.Iter != 5 || after.MaxIter != 5 {
+		t.Errorf("after the continuation: %+v", after)
+	}
+	cli.mu.Lock()
+	last := cli.lastUser
+	cli.mu.Unlock()
+	if !strings.Contains(last, "3") {
+		t.Errorf("the continuation did not tell the model about its new steps: %q", last)
+	}
+	_, sess, err := m.Transcript(rec.ID)
+	if err != nil || sess.ID != rec.Session || len(sess.Messages) < 8 {
+		t.Errorf("the continuation should write on into the same session: %v %d", err, len(sess.Messages))
+	}
+
+	// It finished by itself now: nothing to extend.
+	if _, err := r.Extend(context.Background(), rec.ID, 3); err == nil {
+		t.Error("extended a subagent that finished on its own")
+	}
+	if _, err := m.Extend("sa-nope", 3); err == nil {
+		t.Error("extended an unknown subagent")
+	}
+}
+
+// However often it is extended, a subagent never gets more than the ceiling.
+func TestExtend_Ceiling(t *testing.T) {
+	cwd := setup(t)
+	m := NewManager(nil)
+	r := m.Runner(Deps{Client: &fakeLLM{block: true}, Cwd: cwd, ParentChat: "p"})
+	rq := req("forever")
+	rq.Background = true
+	if _, err := r.Run(context.Background(), rq); err != nil {
+		t.Fatal(err)
+	}
+	id := m.Fleet().Snapshot()[0].ID
+	for i := 0; i < 10; i++ {
+		_, _ = m.Extend(id, tools.SubagentMaxIterations)
+	}
+	if rec := m.Fleet().Snapshot()[0]; rec.MaxIter != tools.SubagentCeiling {
+		t.Errorf("max_iter %d, want the ceiling %d", rec.MaxIter, tools.SubagentCeiling)
+	}
+	if _, err := m.Extend(id, 1); err == nil {
+		t.Error("extended past the ceiling")
+	}
+	m.Stop(id)
+}
+
+// A Task call without max_iterations gets the configured default.
+func TestRun_UsesConfiguredDefault(t *testing.T) {
+	cwd := setup(t)
+	tools.SetSubagentDefault(70)
+	defer tools.SetSubagentDefault(0)
+	m := NewManager(nil)
+	r := m.Runner(Deps{Client: &fakeLLM{answer: "ok"}, Cwd: cwd, ParentChat: "p"})
+	rq := req("x")
+	rq.MaxIterations = 0
+	if _, err := r.Run(context.Background(), rq); err != nil {
+		t.Fatal(err)
+	}
+	if rec := m.Fleet().Snapshot()[0]; rec.MaxIter != 70 {
+		t.Errorf("max_iter %d, want 70", rec.MaxIter)
+	}
 }

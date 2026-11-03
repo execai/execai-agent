@@ -65,6 +65,8 @@ func systemPrompt(write bool, cwd string) string {
 type streamer struct {
 	fleet *fleet.Fleet
 	id    string
+	base  int // steps of the earlier runs: a continuation counts on from them
+	n     int // steps of this run so far (under mu)
 
 	mu  sync.Mutex
 	cur strings.Builder // text of the current iteration — the preview
@@ -92,8 +94,16 @@ func (s *streamer) OnToolResult(string, string, error) {}
 func (s *streamer) OnIterationStart(n int) {
 	s.mu.Lock()
 	s.cur.Reset()
+	s.n = n
 	s.mu.Unlock()
-	s.fleet.Update(s.id, func(r *fleet.Record) { r.Iter = n })
+	s.fleet.Update(s.id, func(r *fleet.Record) { r.Iter = s.base + n })
+}
+
+// steps — steps made in total, the earlier runs included.
+func (s *streamer) steps() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.base + s.n
 }
 
 func (s *streamer) text() string {

@@ -149,6 +149,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) error {
 	// the machine's card in the web panel. On exit everything still
 	// running ends "cancelled" and the last report is sent.
 	agentFleet := fleet.New()
+	tools.SetSubagentDefault(cfg.SubagentIterations)
 	agents := subagent.NewManager(agentFleet)
 	daemonCwd, _ := os.Getwd()
 	agentReport := fleet.StartReporter(agentFleet, fleet.HTTPSender(cfg.APIBase, fleet.SavedToken), daemonCwd, 0)

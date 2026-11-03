@@ -10,6 +10,7 @@ package ide
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -18,9 +19,11 @@ import (
 	"github.com/velesbsdllc/agent-vbai/internal/auth"
 	"github.com/velesbsdllc/agent-vbai/internal/config"
 	subsconnect "github.com/velesbsdllc/agent-vbai/internal/connect"
+	"github.com/velesbsdllc/agent-vbai/internal/i18n"
 	"github.com/velesbsdllc/agent-vbai/internal/llm"
 	"github.com/velesbsdllc/agent-vbai/internal/security"
 	"github.com/velesbsdllc/agent-vbai/internal/subscriptions"
+	"github.com/velesbsdllc/agent-vbai/internal/tools"
 )
 
 // effortLevels — те же имена и бюджеты, что у /effort в TUI. Разъедутся —
@@ -80,6 +83,20 @@ func setMaxIterations(cfg *config.Config, value string) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("предел итераций на ход: %d", n), nil
+}
+
+// setSubagentIterations — steps new subagents get by default.
+func setSubagentIterations(cfg *config.Config, value string) (string, error) {
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || n < 1 || n > tools.SubagentMaxIterations {
+		return "", errors.New(i18n.Tf("fleet.tui.limitBad", tools.SubagentMaxIterations))
+	}
+	cfg.SubagentIterations = n
+	if err := config.Save(cfg); err != nil {
+		return "", err
+	}
+	tools.SetSubagentDefault(n)
+	return i18n.Tf("fleet.tui.limitSet", n), nil
 }
 
 // login проводит device-flow: отдаёт ссылку плагину и ждёт подтверждения.

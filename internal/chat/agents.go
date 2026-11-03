@@ -15,11 +15,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/velesbsdllc/agent-vbai/internal/agent"
+	"github.com/velesbsdllc/agent-vbai/internal/config"
 	"github.com/velesbsdllc/agent-vbai/internal/fleet"
 	"github.com/velesbsdllc/agent-vbai/internal/i18n"
 	"github.com/velesbsdllc/agent-vbai/internal/llmpick"
 	"github.com/velesbsdllc/agent-vbai/internal/sessions"
 	"github.com/velesbsdllc/agent-vbai/internal/subagent"
+	"github.com/velesbsdllc/agent-vbai/internal/tools"
 )
 
 // fleetMsg — a new snapshot of the registry (at most two a second).
@@ -42,6 +44,7 @@ var tuiAskSem = make(chan struct{}, 1)
 // func stops subagents (they end "cancelled") and sends the last report.
 func (m *tuiModel) startFleet(cwd string) func() {
 	m.fleet = fleet.New()
+	tools.SetSubagentDefault(m.cfg.SubagentIterations)
 	m.agents = subagent.NewManager(m.fleet)
 	unsub := m.fleet.Subscribe(func(recs []fleet.Record) {
 		if p := teaProgramRef; p != nil {
@@ -184,6 +187,7 @@ func (m *tuiModel) renderAgentsBlock() string {
 	const maxRows = 6
 	head := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#5FAFFF"))
 	dim := styleHelpDim
+	warn := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFAF00"))
 	var b strings.Builder
 	b.WriteString(head.Render(i18n.T("fleet.tui.header")))
 	b.WriteString("\n")
@@ -195,14 +199,18 @@ func (m *tuiModel) renderAgentsBlock() string {
 	for _, r := range shown[start:] {
 		line := fmt.Sprintf(" %s %s", stateIcon(r.State), truncate(r.Title, 40))
 		meta := []string{subagent.StateLabel(r.State)}
-		if r.Iter > 0 {
-			meta = append(meta, fmt.Sprintf("%d/%d", r.Iter, r.MaxIter))
+		steps, low := stepsLabel(r)
+		if steps != "" && !low {
+			meta = append(meta, steps)
 		}
 		if r.LastTool != "" && r.State.Active() {
 			meta = append(meta, r.LastTool)
 		}
 		meta = append(meta, shortDuration(r.Elapsed(now)))
 		b.WriteString(line + "  " + dim.Render(strings.Join(meta, " · ")))
+		if low {
+			b.WriteString(dim.Render(" · ") + warn.Render(steps+" — "+i18n.Tf("fleet.tui.moreHint", r.ID)))
+		}
 		b.WriteString("\n")
 	}
 	if start > 0 {
@@ -210,6 +218,27 @@ func (m *tuiModel) renderAgentsBlock() string {
 		b.WriteString("\n")
 	}
 	return lipgloss.NewStyle().MaxWidth(max(m.width, 20)).Render(strings.TrimRight(b.String(), "\n")) + "\n"
+}
+
+// lowSteps — at this many steps left a working subagent is flagged, so the
+// person can give it more before it stops.
+const lowSteps = 5
+
+// stepsLabel — "step 12/50 · 38 left" for a working subagent, "12/50" for a
+// finished one, plus a note when it hit its limit. low: few steps left.
+func stepsLabel(r fleet.Record) (label string, low bool) {
+	if r.MaxIter <= 0 {
+		return "", false
+	}
+	if r.State.Active() {
+		left := max(r.MaxIter-r.Iter, 0)
+		return i18n.Tf("fleet.tui.steps", r.Iter, r.MaxIter, left), left <= lowSteps
+	}
+	label = fmt.Sprintf("%d/%d", r.Iter, r.MaxIter)
+	if r.Exhausted {
+		label += " · " + i18n.T("fleet.tui.atLimit")
+	}
+	return label, false
 }
 
 func shortDuration(d time.Duration) string {
@@ -229,7 +258,8 @@ func firstLines(s string, n int) string {
 	return s
 }
 
-// agentsCommand handles /agents, /agents open <n>, /agents stop <n>.
+// agentsCommand handles /agents, /agents open <n>, /agents stop <n>,
+// /agents more <n> [steps], /agents limit [N].
 func (m *tuiModel) agentsCommand(arg string) string {
 	if m.fleet == nil {
 		return i18n.T("fleet.tui.listEmpty")
@@ -269,6 +299,38 @@ func (m *tuiModel) agentsCommand(arg string) string {
 			return i18n.Tf("fleet.tui.notRunning", rec.Title)
 		}
 		return i18n.Tf("fleet.tui.stopping", rec.Title)
+	case (len(fields) == 2 || len(fields) == 3) && fields[0] == "more":
+		rec, ok := pick(fields[1])
+		if !ok {
+			return i18n.Tf("fleet.tui.notFound", fields[1])
+		}
+		steps := 0
+		if len(fields) == 3 {
+			n, err := strconv.Atoi(fields[2])
+			if err != nil || n <= 0 {
+				return i18n.T("fleet.tui.usage")
+			}
+			steps = n
+		}
+		msg, err := m.agents.Extend(rec.ID, steps)
+		if err != nil {
+			return err.Error()
+		}
+		return msg
+	case len(fields) == 1 && fields[0] == "limit":
+		return i18n.Tf("fleet.tui.limitShow", tools.SubagentDefault(), tools.SubagentDefaultIterations,
+			tools.SubagentMaxIterations)
+	case len(fields) == 2 && fields[0] == "limit":
+		n, err := strconv.Atoi(fields[1])
+		if err != nil || n < 1 || n > tools.SubagentMaxIterations {
+			return i18n.Tf("fleet.tui.limitBad", tools.SubagentMaxIterations)
+		}
+		m.cfg.SubagentIterations = n
+		if err := config.Save(m.cfg); err != nil {
+			return err.Error()
+		}
+		tools.SetSubagentDefault(n)
+		return i18n.Tf("fleet.tui.limitSet", n)
 	}
 	return i18n.T("fleet.tui.usage")
 }
@@ -283,8 +345,9 @@ func formatAgentsList(recs []fleet.Record, now time.Time) string {
 	b.WriteString(i18n.T("fleet.tui.listHeader"))
 	b.WriteString("\n")
 	for i, r := range recs {
-		fmt.Fprintf(&b, "%2d. %s %s  [%s · %s · %d/%d · %s", i+1, stateIcon(r.State), r.Title,
-			subagent.StateLabel(r.State), r.Mode, r.Iter, r.MaxIter, shortDuration(r.Elapsed(now)))
+		steps, _ := stepsLabel(r)
+		fmt.Fprintf(&b, "%2d. %s %s  [%s · %s · %s · %s", i+1, stateIcon(r.State), r.Title,
+			subagent.StateLabel(r.State), r.Mode, steps, shortDuration(r.Elapsed(now)))
 		if r.Model != "" {
 			b.WriteString(" · " + r.Model)
 		}

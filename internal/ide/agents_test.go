@@ -224,6 +224,37 @@ func TestIDE_StopAgent(t *testing.T) {
 	buf.waitEvent(t, func(o Out) bool { return o.Type == "error" && strings.Contains(o.Text, "sa-nope") })
 }
 
+// extend_agent raises a working subagent's limit ("id" gives the default
+// step, "id N" gives N); an unknown id is an error.
+func TestIDE_ExtendAgent(t *testing.T) {
+	s, buf := newAgentsServer(t)
+	r := s.agents.Runner(subagent.Deps{Client: &textLLM{block: true}, Cwd: s.cwd, ParentChat: "c"})
+	rq := tools.SubagentRequest{Description: "long one", Prompt: "x", Mode: "read", MaxIterations: 5, Background: true}
+	if _, err := r.Run(context.Background(), rq); err != nil {
+		t.Fatal(err)
+	}
+	defer s.agents.Shutdown(time.Second)
+	id := s.agents.Fleet().Snapshot()[0].ID
+	s.agentCommand(In{Type: "command", Name: "extend_agent", Value: id})
+	buf.waitEvent(t, func(o Out) bool { return o.Type == "notice" && strings.Contains(o.Text, "long one") })
+	if rec, _ := s.agents.Fleet().Get(id); rec.MaxIter != 5+tools.SubagentExtendStep {
+		t.Errorf("max_iter %d after the default extend", rec.MaxIter)
+	}
+	s.agentCommand(In{Type: "command", Name: "extend_agent", Value: id + " 10"})
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if rec, _ := s.agents.Fleet().Get(id); rec.MaxIter == 5+tools.SubagentExtendStep+10 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if rec, _ := s.agents.Fleet().Get(id); rec.MaxIter != 5+tools.SubagentExtendStep+10 {
+		t.Errorf("max_iter %d after +10", rec.MaxIter)
+	}
+	s.agentCommand(In{Type: "command", Name: "extend_agent", Value: "sa-nope"})
+	buf.waitEvent(t, func(o Out) bool { return o.Type == "error" && strings.Contains(o.Text, "sa-nope") })
+}
+
 // A write subagent's question carries agent {id, title}; when the subagent
 // is gone before the answer, the question is withdrawn and the answer is no.
 func TestIdeApprover_SubagentAsk(t *testing.T) {

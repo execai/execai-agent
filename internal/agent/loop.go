@@ -101,9 +101,21 @@ type Agent struct {
 	// appends a hint instead of an answer). Read after Run returns.
 	Exhausted bool
 
+	// IterationLimit, when set, replaces MaxIterations and is asked before
+	// every iteration: a subagent's limit can be raised while it works.
+	IterationLimit func() int
+
 	// mu guards allowedTools/allowedExactArgs: parallel tool calls of one
 	// turn may ask at the same time.
 	mu sync.Mutex
+}
+
+// iterationLimit — the current limit on iterations of one Run.
+func (a *Agent) iterationLimit() int {
+	if a.IterationLimit != nil {
+		return a.IterationLimit()
+	}
+	return a.MaxIterations
 }
 
 func New(cli llm.StreamingLLM, reg *tools.Registry, sys string, ap Approver, st Streamer) *Agent {
@@ -154,7 +166,7 @@ func (a *Agent) RunWithFiles(ctx context.Context, history []llm.AIMessage, userM
 
 	a.Exhausted = false
 	keys := map[string]bool{}
-	for i := 0; i < a.MaxIterations; i++ {
+	for i := 0; i < a.iterationLimit(); i++ {
 		if a.Streamer != nil {
 			a.Streamer.OnIterationStart(i + 1)
 		}
@@ -230,7 +242,7 @@ func (a *Agent) RunWithFiles(ctx context.Context, history []llm.AIMessage, userM
 	// to let the task proceed (next 40 iterations).
 	out = append(out, llm.AIMessage{
 		Role:    "assistant",
-		Content: i18n.Tf("loop.iterationLimit", a.MaxIterations, a.MaxIterations),
+		Content: i18n.Tf("loop.iterationLimit", a.iterationLimit(), a.iterationLimit()),
 	})
 	a.Exhausted = true
 	if a.Checkpoint != nil {
