@@ -1,0 +1,5 @@
+{"step": "wa5b-offline-verdict", "verdict": "PASS", "detail": "error/12.1s task=6fbbc42f"}
+{"step": "wa5b-foreign-result-403", "verdict": "PASS", "detail": "HTTP 403: {\"error\":\"задача адресована другой машине\"}\n"}
+{"step": "wa3-off-stage", "verdict": "PASS", "detail": "error/0.0s: агент выключен в этом проекте — включи тумблер в настройках проекта"}
+{"step": "wa6-offline", "verdict": "PASS", "detail": "error/12.1s task=35265cfc-769e-4a5e-a0a1-1837503762da"}
+35265cfc-769e-4a5e-a0a1-1837503762da

@@ -1,0 +1,60 @@
+data: {"type": "session_init", "cid": "96873ed5-c9ae-43c5-89e7-4a8966426438"}
+
+data: {"type": "message_id", "id": "2732"}
+
+data: {"type": "iteration_init", "iid": "68e23ab0-07ae-4714-b932-da2951cad854"}
+
+data: {"type": "iteration_init", "iteration_id": "f5b4d809-e7e9-44d5-be6e-e5dced126c87"}
+
+data: {"type": "reasoning_delta", "content": "\nThe user wants me to ask the agent on the machine about the OS version and free disk space, then report"}
+
+data: {"type": "reasoning_delta", "content": " back. I need to use the run_on_agent function. The agent ID is fixed as '0ba"}
+
+data: {"type": "reasoning_delta", "content": "206a4-e546-4920-851d-b3adaa9632ca'."}
+
+data: {"type": "reasoning_delta", "content": "\n"}
+
+data: {"type": "reasoning_done"}
+
+data: {"type": "text_delta", "content": "\n\n</think>"}
+
+data: {"type": "heartbeat"}
+
+data: {"type": "tool_call", "id": "call_94551495deab23b0", "name": "run_on_agent", "arguments": {"task": "Покажи версию ОС и сколько свободного места на диске (используй uname -a и df -h).", "agent": "0ba206a4-e546-4920-851d-b3adaa9632ca"}}
+
+data: {"type": "heartbeat"}
+
+data: {"type": "tool_progress", "id": "call_94551495deab23b0", "elapsed": 5}
+
+data: {"function_result":"keepalive"}
+
+data: {"type": "tool_output_delta", "id": "call_94551495deab23b0", "content": "OS: Debian 6.12.74-2 (x86_64), ядро 6.12.74+deb13+1-amd64.\n\nДиск:\n- `/` — 120G, 75G использовано, **39G свободно** (66%)\n- `/boot` — 943M, 159M использовано, **720M свободно** (19%)"}
+
+data: {"type": "tool_result", "id": "call_94551495deab23b0", "status": "success", "content": "OS: Debian 6.12.74-2 (x86_64), ядро 6.12.74+deb13+1-amd64.\n\nДиск:\n- `/` — 120G, 75G использовано, **39G свободно** (66%)\n- `/boot` — 943M, 159M использовано, **720M свободно** (19%)"}
+
+data: {"type": "reasoning_delta", "content": "\nThe agent answered my question. I should report it to the user in Russian."}
+
+data: {"type": "reasoning_delta", "content": "\n"}
+
+data: {"type": "reasoning_done"}
+
+data: {"type": "text_delta", "content": "\n\nОтвет агента"}
+
+data: {"type": "text_delta", "content": ":\n\n**ОС:** Debian 6.12.74-2 (x86_64), ядро"}
+
+data: {"type": "text_delta", "content": " 6.12.74+deb13+1-amd64.\n\n**Свободное место"}
+
+data: {"type": "text_delta", "content": " на диске:**\n- `/` — 120G всего, 75G использовано, свобод"}
+
+data: {"type": "text_delta", "content": "но **39G** (66%);\n- `/boot` — 943M всего, 159"}
+
+data: {"type": "text_delta", "content": "M использовано, свободно **720M** (19%).\n\nТо есть система Debian, на"}
+
+data: {"type": "text_delta", "content": " основном разделе осталось около 39 ГБ свободного места, а раздел `/boot` почти заполнен —"}
+
+data: {"type": "text_delta", "content": " занято 81% из 943 МБ."}
+
+data: {"type": "done", "usage": {"total_tokens": 2158, "total_characters": 0, "prompt_tokens": 1993, "completion_tokens": 165, "completion_tokens_details": {"reasoning_tokens": 19}, "prompt_tokens_details": {"cached_tokens": 1792}}}
+
+data: [AICORE_DONE]
+

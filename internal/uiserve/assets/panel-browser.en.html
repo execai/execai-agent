@@ -1,0 +1,2046 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ExecAI</title>
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'nonce-{{NONCE}}'; connect-src 'self'; base-uri 'none'; form-action 'none';">
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; padding: 0;
+    font: 13px var(--vscode-font-family);
+    color: var(--vscode-foreground);
+    background: var(--vscode-sideBar-background);
+    display: flex; flex-direction: column;
+  }
+  #log { flex: 1; overflow-y: auto; padding: 8px; }
+  .msg { margin: 0 0 10px; white-space: pre-wrap; word-break: break-word; }
+  /* An answer brings its own block spacing; pre-wrap would add the blank
+     lines of the original markdown on top of it. */
+  .msg.assistant { white-space: normal; }
+  .user {
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border, transparent);
+    border-radius: 8px; padding: 6px 9px;
+  }
+  .assistant { padding: 0 2px; }
+  /* Markdown in answers. Models reply with tables, code and lists; without
+     this the message arrived as raw text full of pipe characters. */
+  .assistant p { margin: 0 0 8px; }
+  .assistant p:last-child { margin-bottom: 0; }
+  .assistant h3, .assistant h4, .assistant h5, .assistant h6 {
+    margin: 10px 0 6px; font-size: 13px; font-weight: 600;
+  }
+  .assistant ul, .assistant ol { margin: 4px 0 8px; padding-left: 20px; }
+  .assistant li { margin: 2px 0; }
+  .assistant blockquote {
+    margin: 6px 0; padding: 2px 0 2px 9px;
+    border-left: 2px solid var(--vscode-panel-border);
+    color: var(--vscode-descriptionForeground);
+  }
+  .assistant hr { border: none; border-top: 1px solid var(--vscode-panel-border); margin: 10px 0; }
+  .assistant code {
+    font-family: var(--vscode-editor-font-family); font-size: 11.5px;
+    background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+    border-radius: 3px; padding: 1px 4px;
+  }
+  .assistant pre.code {
+    margin: 6px 0; padding: 7px 9px; overflow-x: auto;
+    background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+    border: 1px solid var(--vscode-panel-border); border-radius: 5px;
+  }
+  .assistant pre.code code { background: none; padding: 0; font-size: 11.5px; }
+  /* The panel is narrow and tables are wide: scroll the TABLE, not the whole
+     panel, or the surrounding text drifts with it. */
+  .assistant .tablewrap { overflow-x: auto; margin: 6px 0; }
+  .assistant table { border-collapse: collapse; font-size: 12px; }
+  .assistant th, .assistant td {
+    border: 1px solid var(--vscode-panel-border); padding: 3px 7px; vertical-align: top;
+  }
+  .assistant th { background: var(--vscode-editor-background); font-weight: 600; }
+  .assistant a { color: var(--vscode-textLink-foreground); }
+  .thinking {
+    color: var(--vscode-descriptionForeground);
+    font-style: italic; font-size: 12px;
+    max-height: 48px; overflow: hidden; opacity: .85;
+  }
+  .thinking.open { max-height: none; }
+  .thinking-toggle {
+    cursor: pointer; color: var(--vscode-textLink-foreground);
+    font-size: 11px; user-select: none;
+  }
+  .tool {
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px; margin: 6px 0; font-size: 12px;
+  }
+  .tool-head { display: flex; gap: 6px; align-items: center; padding: 4px 8px; cursor: pointer; }
+  .tool-name { font-weight: 600; }
+  .tool-sum { color: var(--vscode-descriptionForeground); overflow: hidden;
+              text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .tool-state { font-size: 11px; }
+  .tool-out {
+    display: none; border-top: 1px solid var(--vscode-panel-border);
+    padding: 6px 8px; max-height: 220px; overflow-y: auto;
+    font-family: var(--vscode-editor-font-family); font-size: 11px;
+    white-space: pre-wrap; word-break: break-all;
+    background: var(--vscode-editor-background);
+  }
+  .tool.open .tool-out { display: block; }
+  .ask {
+    border: 1px solid var(--vscode-inputValidation-warningBorder, #b89500);
+    border-radius: 8px; padding: 8px; margin: 8px 0;
+  }
+  .ask-title { font-weight: 600; margin-bottom: 4px; }
+  .ask-sum {
+    font-family: var(--vscode-editor-font-family); font-size: 12px;
+    background: var(--vscode-editor-background); border-radius: 4px;
+    padding: 5px 7px; margin-bottom: 7px; white-space: pre-wrap; word-break: break-all;
+  }
+  .ask button {
+    display: block; width: 100%; text-align: left; margin: 3px 0;
+    padding: 5px 8px; border-radius: 5px; cursor: pointer;
+    color: var(--vscode-foreground);
+    background: var(--vscode-button-secondaryBackground);
+    border: 1px solid var(--vscode-panel-border);
+  }
+  .ask button:hover { background: var(--vscode-list-hoverBackground); }
+  .ask button b { display: block; }
+  .ask button small { color: var(--vscode-descriptionForeground); }
+  .ask.answered { opacity: .55; }
+  .ask.answered button { pointer-events: none; }
+  .login-link {
+    display: block; margin: 5px 0; padding: 5px 7px; border-radius: 4px;
+    font-family: var(--vscode-editor-font-family); font-size: 12px;
+    background: var(--vscode-editor-background);
+    user-select: all; word-break: break-all;
+  }
+  .login-copy {
+    padding: 3px 8px; border-radius: 5px; cursor: pointer;
+    color: var(--vscode-foreground);
+    background: var(--vscode-button-secondaryBackground);
+    border: 1px solid var(--vscode-panel-border);
+  }
+  .login-copy:hover { background: var(--vscode-list-hoverBackground); }
+  /* Chat tabs — the way an editor shows open documents: what exists, what is
+     current, one click to switch. The panel is narrow, so they scroll. */
+  #tabs {
+    display: flex; align-items: stretch; gap: 2px;
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-editorGroupHeader-tabsBackground, var(--vscode-sideBar-background));
+  }
+  #tabs:empty { display: none; }
+  #tabs::-webkit-scrollbar { height: 3px; }
+  #tabs::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background); }
+  #tabs::-webkit-scrollbar-thumb:hover { background: var(--vscode-scrollbarSlider-hoverBackground); }
+  #tabs .tab { flex: 0 0 auto; }
+  #tabs .tab {
+    display: flex; align-items: center; gap: 5px;
+    padding: 4px 8px; max-width: 160px; cursor: pointer;
+    font-size: 11.5px; white-space: nowrap;
+    color: var(--vscode-tab-inactiveForeground, var(--vscode-descriptionForeground));
+    background: var(--vscode-tab-inactiveBackground, transparent);
+    border-right: 1px solid var(--vscode-panel-border);
+    border-top: 1px solid transparent;
+  }
+  #tabs .tab span { overflow: hidden; text-overflow: ellipsis; }
+  #tabs .tab i {
+    font-style: normal; opacity: 0; cursor: pointer; padding: 0 2px;
+    border-radius: 3px; line-height: 1;
+  }
+  #tabs .tab:hover i, #tabs .tab.active i { opacity: .6; }
+  /* Tab badges: what a chat you are not looking at is doing. */
+  #tabs .tab b { font-weight: normal; font-size: 10px; line-height: 1; flex: 0 0 auto; }
+  #tabs .tab b.busy { width: 7px; height: 7px; border-radius: 50%;
+    background: var(--vscode-progressBar-background, #0078d4); animation: exPulse 1.2s ease-in-out infinite; }
+  #tabs .tab b.unseen { width: 7px; height: 7px; border-radius: 50%; background: var(--vscode-charts-green, #3fb950); }
+  /* b.ask also matches the question box rule .ask (border, padding): undo it. */
+  #tabs .tab b.ask { color: var(--vscode-inputValidation-warningBorder, #b89500); font-weight: bold;
+    border: none; border-radius: 0; padding: 0; margin: 0; animation: none; }
+  #tabs .tab b.wake { opacity: .8; }
+  /* Origin, not state: a chat started by a task from the site. */
+  #tabs .tab b.web { opacity: .85; }
+  @keyframes exPulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+  .wake { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .wake button { font: inherit; font-size: 11px; padding: 1px 8px; border-radius: 10px; cursor: pointer;
+    border: 1px solid var(--vscode-button-border, transparent);
+    background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+  .msg.user.auto { opacity: .85; font-style: italic; }
+  #tabs .tab i:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
+  #tabs .tab.dragging { opacity: .5; }
+  #tabs .tab.dropbefore { box-shadow: inset 2px 0 0 var(--vscode-focusBorder); }
+  #tabs .tab:hover { background: var(--vscode-list-hoverBackground); }
+  #tabs .tab.active {
+    color: var(--vscode-tab-activeForeground, var(--vscode-foreground));
+    background: var(--vscode-tab-activeBackground, var(--vscode-editor-background));
+    border-top-color: var(--vscode-focusBorder);
+  }
+  #tabs .newtab {
+    padding: 4px 9px; cursor: pointer; border: none; background: none;
+    color: var(--vscode-descriptionForeground); font-size: 13px; line-height: 1;
+  }
+  #tabs .newtab:hover { color: var(--vscode-foreground); background: var(--vscode-list-hoverBackground); }
+  /* Copy buttons: on a code block and on the answer as a whole. Hidden until
+     the pointer is on the block — the chat is for reading, not for buttons. */
+  .codewrap { position: relative; }
+  .codewrap .copy, .msg.assistant > .copy-msg {
+    position: absolute; top: 4px; right: 4px; z-index: 1;
+    padding: 2px 7px; border-radius: 4px; cursor: pointer;
+    font-size: 10.5px; line-height: 1.5;
+    color: var(--vscode-foreground);
+    background: var(--vscode-button-secondaryBackground);
+    border: 1px solid var(--vscode-panel-border);
+    opacity: 0; transition: opacity 120ms ease;
+  }
+  .msg.assistant { position: relative; }
+  .msg.assistant > .copy-msg { top: 0; right: 0; }
+  .codewrap:hover .copy, .msg.assistant:hover > .copy-msg { opacity: .85; }
+  .codewrap .copy:hover, .msg.assistant > .copy-msg:hover { opacity: 1; background: var(--vscode-list-hoverBackground); }
+  .assistant a[data-file] { cursor: pointer; }
+  .files { margin: 6px 0; display: flex; flex-wrap: wrap; gap: 4px; }
+  .files span {
+    cursor: pointer; font-size: 11px; border-radius: 4px; padding: 2px 7px;
+    background: var(--vscode-badge-background); color: var(--vscode-badge-foreground);
+  }
+  .notice { color: var(--vscode-descriptionForeground); font-size: 12px; margin: 6px 0; }
+  .error { color: var(--vscode-errorForeground); font-size: 12px; margin: 6px 0; white-space: pre-wrap; }
+  #composer { border-top: 1px solid var(--vscode-panel-border); padding: 7px; }
+  #chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  #chips:empty { display: none; }
+  #chips .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; border-radius: 4px; padding: 2px 7px; margin-bottom: 4px;
+    background: var(--vscode-badge-background); color: var(--vscode-badge-foreground);
+  }
+  #chips .chip i { cursor: pointer; font-style: normal; opacity: .7; }
+  #chips .chip i:hover { opacity: 1; }
+  #chips .chip img { height: 44px; max-width: 90px; object-fit: cover;
+                     border-radius: 4px; display: block; }
+  .ctxline {
+    margin-top: 5px; font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    word-break: break-all;
+  }
+  .gallery { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .gallery img { max-height: 120px; max-width: 100%; border-radius: 6px;
+                 border: 1px solid var(--vscode-panel-border); }
+  .gallery .fchip {
+    font-size: 11px; border-radius: 4px; padding: 3px 8px; align-self: center;
+    background: var(--vscode-badge-background); color: var(--vscode-badge-foreground);
+  }
+  body.dragover #box { outline: 2px dashed var(--vscode-focusBorder); outline-offset: -2px; }
+  #box {
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 8px; background: var(--vscode-input-background);
+  }
+  #box:focus-within { outline: 1px solid var(--vscode-focusBorder); }
+  #inp {
+    width: 100%; resize: none; min-height: 48px; max-height: 180px;
+    color: var(--vscode-input-foreground);
+    background: transparent; border: none; outline: none;
+    padding: 7px 9px 2px;
+    font: 13px var(--vscode-font-family);
+  }
+  #bar { display: flex; gap: 4px; align-items: center; padding: 3px 5px 5px; }
+  #bar button {
+    border: none; cursor: pointer; border-radius: 6px;
+    background: transparent; color: var(--vscode-descriptionForeground);
+    width: 26px; height: 26px; font-size: 14px; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  #bar button:hover { background: var(--vscode-toolbar-hoverBackground);
+                      color: var(--vscode-foreground); }
+  #cmdBtn { font-size: 11px; font-family: var(--vscode-editor-font-family); }
+  /* send/stop — a round accent button on the right, like in the web chat */
+  #sendBtn, #stopBtn {
+    margin-left: 0; border-radius: 50%;
+    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+  }
+  #sendBtn:hover, #stopBtn:hover { background: var(--vscode-button-hoverBackground);
+                                   color: var(--vscode-button-foreground); }
+  /* Specificity: "#bar button" (id + type) beats plain "#stopBtn" (id only), so
+     display:none lost there and stop hung around forever. The selectors below
+     deliberately include #bar. */
+  #bar #stopBtn { display: none; }
+  body.busy #bar #stopBtn { display: inline-flex; }
+  body.busy #bar #sendBtn { display: none; }
+  #hint { color: var(--vscode-descriptionForeground); font-size: 11px; flex: 1; text-align: right; }
+  #empty { color: var(--vscode-descriptionForeground); padding: 16px 10px; font-size: 12px; }
+
+  /* ── motion ──
+     Animation only where it carries meaning: a turn is running, a tool is
+     working, something new arrived. No decoration for its own sake: this panel
+     lives right next to the code. */
+  @keyframes exSpin { to { transform: rotate(360deg); } }
+  @keyframes exPulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+  @keyframes exIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  @keyframes exGlow {
+    0%, 100% { box-shadow: 0 0 0 0 var(--vscode-progressBar-background); }
+    50%      { box-shadow: 0 0 0 4px transparent; }
+  }
+
+  .msg, .tool, .ask, .files, .notice { animation: exIn 160ms ease-out; }
+  #chips .chip { animation: exIn 140ms ease-out; }
+
+  /* The stop button: a spinning ring plus a soft pulse — proof the turn is alive. */
+  #stopBtn { position: relative; }
+  body.busy #stopBtn { animation: exGlow 1.6s ease-in-out infinite; }
+  body.busy #stopBtn::after {
+    content: ''; position: absolute; inset: -3px; border-radius: 50%;
+    border: 2px solid transparent;
+    border-top-color: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+    animation: exSpin 900ms linear infinite;
+    pointer-events: none;
+  }
+  #bar button { transition: background-color 120ms ease, color 120ms ease, transform 80ms ease; }
+  #bar button:active { transform: scale(.92); }
+
+  /* A spinner inside the tool card while the tool is running. */
+  .spin {
+    display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+    border: 1.5px solid var(--vscode-panel-border);
+    border-top-color: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+    animation: exSpin 800ms linear infinite;
+  }
+  .tool.run .tool-name { animation: exPulse 1.4s ease-in-out infinite; }
+  .thinking.live { animation: exPulse 1.8s ease-in-out infinite; }
+
+  /* Turn timer — next to the hint, replacing it while the agent works. */
+  #timer { display: none; color: var(--vscode-descriptionForeground); font-size: 11px;
+           flex: 1; text-align: right; font-variant-numeric: tabular-nums; }
+  body.busy #timer { display: inline; }
+  body.busy #hint { display: none; }
+
+  /* Respect the system setting: no motion for those who asked for none. */
+  @media (prefers-reduced-motion: reduce) {
+    .msg, .tool, .ask, .files, .notice, #chips .chip { animation: none; }
+    body.busy #stopBtn, body.busy #stopBtn::after,
+    .spin, .tool.run .tool-name, .thinking.live { animation: none; }
+    body.busy #stopBtn::after { border-top-color: transparent; }
+  }
+  #status {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 11px; color: var(--vscode-descriptionForeground);
+    padding: 0 2px 5px; cursor: pointer; user-select: none;
+  }
+  #status:hover { color: var(--vscode-foreground); }
+  #status b { font-weight: 600; }
+  /* command popup — flies out above the composer, like in Claude Code */
+  #composer { position: relative; }
+  #menu {
+    display: none; position: absolute; left: 7px; right: 7px; bottom: calc(100% + 4px);
+    max-height: 300px; overflow-y: auto; z-index: 10;
+    background: var(--vscode-menu-background, var(--vscode-editor-background));
+    color: var(--vscode-menu-foreground, var(--vscode-foreground));
+    border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+    border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.35); padding: 4px;
+  }
+  #menu.open { display: block; }
+  #menu .mi {
+    display: flex; gap: 8px; align-items: center;
+    padding: 6px 9px; border-radius: 5px; cursor: pointer; font-size: 12.5px;
+  }
+  #menu .mi:hover { background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+                    color: var(--vscode-menu-selectionForeground, inherit); }
+  #menu .mi .grow { flex: 1; }
+  #menu .mi small { color: var(--vscode-descriptionForeground); }
+  #menu .mi:hover small { color: inherit; opacity: .8; }
+  #menu .mi .check { width: 14px; text-align: center; }
+  /* Inbox status line: text to read, clickable only when it is an action. */
+  #menu .mi.info { cursor: default; white-space: normal; word-break: break-word;
+                   color: var(--vscode-descriptionForeground); }
+  #menu .mi.info:not(.act):hover { background: none; color: var(--vscode-descriptionForeground); }
+  #menu .mi.info.act { cursor: pointer; color: inherit; }
+  #menu .sep { height: 1px; margin: 4px 2px;
+               background: var(--vscode-menu-separatorBackground, var(--vscode-panel-border)); }
+  #menu .head { display: flex; gap: 6px; align-items: center; padding: 4px 6px 6px;
+                color: var(--vscode-descriptionForeground); font-size: 11px; }
+  #menu .head span { cursor: pointer; }
+  #menu .head span:hover { color: var(--vscode-foreground); }
+
+  /* ── subagents (E101): who is doing what, right above the composer. ── */
+  #agents { display: none; border-top: 1px solid var(--vscode-panel-border); font-size: 11.5px; }
+  #agents.on { display: block; }
+  #agents .ag-head { display: flex; gap: 5px; align-items: center; padding: 4px 9px;
+    cursor: pointer; user-select: none; color: var(--vscode-descriptionForeground); }
+  #agents .ag-head:hover { color: var(--vscode-foreground); }
+  #agents .ag-caret { width: 10px; }
+  #agents .ag-list { max-height: 140px; overflow-y: auto; padding: 0 4px 4px; }
+  #agents .ag-row { display: flex; gap: 6px; align-items: center; padding: 3px 5px;
+    border-radius: 5px; cursor: pointer; }
+  #agents .ag-row:hover, #agents .ag-row.on { background: var(--vscode-list-hoverBackground); }
+  #agents .ag-st { width: 14px; flex: 0 0 auto; text-align: center; }
+  #agents .ag-row[data-state="running"] .ag-st { color: var(--vscode-progressBar-background, #0078d4);
+    animation: exPulse 1.4s ease-in-out infinite; }
+  #agents .ag-row[data-state="waiting"] .ag-st { color: var(--vscode-inputValidation-warningBorder, #b89500); font-weight: bold; }
+  #agents .ag-row[data-state="done"] .ag-st { color: var(--vscode-charts-green, #3fb950); }
+  #agents .ag-row[data-state="failed"] .ag-st { color: var(--vscode-errorForeground); }
+  #agents .ag-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #agents .ag-meta { flex: 0 1 auto; min-width: 0; max-width: 55%; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; }
+  /* Few steps left, or none: the agent may stop before it is done. */
+  #agents .ag-meta.warn { color: var(--vscode-editorWarning-foreground, #b89500); }
+  #agents .ag-stop, #agents .ag-more { flex: 0 0 auto; font: inherit; font-size: 10.5px; padding: 1px 7px; border-radius: 10px; cursor: pointer;
+    border: 1px solid var(--vscode-button-border, transparent);
+    background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+  #agents .ag-stop:disabled, #agents .ag-more:disabled { opacity: .5; cursor: default; }
+  #tabs .tab b.agents { opacity: .85; font-variant-numeric: tabular-nums; }
+  #tabs .tab.agent span { font-style: italic; }
+  /* A subagent's transcript is read-only: no input, a way back instead. */
+  #ro { display: none; gap: 8px; align-items: center; font-size: 11.5px; padding: 2px 2px 4px;
+    color: var(--vscode-descriptionForeground); }
+  #ro span { flex: 1; }
+  #ro button { font: inherit; font-size: 11px; padding: 1px 9px; border-radius: 10px; cursor: pointer;
+    border: 1px solid var(--vscode-button-border, transparent);
+    background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+  body.agentview #ro { display: flex; }
+  body.agentview #box, body.agentview #chips { display: none; }
+  .ask-agent { font-size: 11px; margin-bottom: 4px; cursor: pointer; color: var(--vscode-descriptionForeground); }
+  .ask-agent:hover { color: var(--vscode-foreground); }
+  @media (prefers-reduced-motion: reduce) {
+    #agents .ag-row[data-state="running"] .ag-st { animation: none; }
+  }
+
+  /* ── getting started and the machine card (E105): cards over the log ── */
+  #start, #machine { display: none; flex: 0 1 auto; overflow-y: auto; margin: 8px 8px 0; padding: 7px 10px;
+    font-size: 12px; border: 1px solid var(--vscode-panel-border); border-radius: 8px;
+    background: var(--vscode-editor-background); animation: exIn 160ms ease-out; }
+  #start { max-height: 72%; }
+  #machine { max-height: 60%; }
+  #start.on, #machine.on { display: block; }
+  .st-head, .mc-head { display: flex; gap: 6px; align-items: center; }
+  .st-title, .mc-title { flex: 1; font-weight: 600; }
+  .st-count { font-size: 11px; color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; }
+  .st-close, .mc-close, .mc-refresh { font: inherit; font-size: 13px; line-height: 1; padding: 1px 5px; cursor: pointer;
+    border: none; border-radius: 4px; background: none; color: var(--vscode-descriptionForeground); }
+  .st-close:hover, .mc-close:hover, .mc-refresh:hover { color: var(--vscode-foreground);
+    background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
+  .st-lead { margin: 2px 0 4px; color: var(--vscode-descriptionForeground); }
+  .st-step { display: flex; gap: 8px; padding: 6px 0 5px; border-top: 1px solid var(--vscode-panel-border); }
+  .st-mark { flex: 0 0 auto; width: 15px; text-align: center; color: var(--vscode-descriptionForeground); }
+  .st-step.done .st-mark { color: var(--vscode-charts-green, #3fb950); font-weight: bold; }
+  .st-step.done .st-name { opacity: .75; }
+  .st-body, .mc-val { flex: 1; min-width: 0; word-break: break-word; }
+  .st-name { font-weight: 600; }
+  .st-why { margin: 1px 0 2px; color: var(--vscode-descriptionForeground); }
+  .st-line, .mc-line { font-size: 11.5px; }
+  .mc-line { color: var(--vscode-descriptionForeground); }
+  .st-act, .mc-btns button, .qr-link button { font: inherit; font-size: 11.5px; margin-top: 5px; padding: 2px 10px;
+    border-radius: 4px; cursor: pointer; border: 1px solid var(--vscode-button-border, transparent);
+    background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+  .st-act:hover { background: var(--vscode-button-hoverBackground); }
+  .mc-btns button, .qr-link button { background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground); }
+  .mc-row { display: flex; gap: 8px; padding: 4px 0; border-top: 1px solid var(--vscode-panel-border); }
+  .mc-head { padding-bottom: 4px; }
+  .mc-label { flex: 0 0 auto; width: 66px; color: var(--vscode-descriptionForeground); }
+  .mc-row.ok .mc-label::before { content: '● '; color: var(--vscode-charts-green, #3fb950); }
+  .mc-row.warn .mc-label::before { content: '● '; color: var(--vscode-editorWarning-foreground, #b89500); }
+  .mc-note { margin: 4px 0; color: var(--vscode-descriptionForeground); }
+  .mc-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .qr-wrap { margin-top: 6px; }
+  /* A QR code is dark on light whatever the theme: phone cameras expect it. */
+  .qr { width: 172px; max-width: 100%; padding: 6px; border-radius: 6px; background: #fff; }
+  .qr svg { display: block; width: 100%; height: auto; }
+  .qr-link { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 11px;
+    color: var(--vscode-descriptionForeground); word-break: break-all; }
+  .qr-link button { margin-top: 0; padding: 1px 8px; }
+
+  /* ── browser page (execai ui): the editor theme is not there, so its
+     variables get defaults — light or dark after the system setting. */
+  :root {
+    --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", sans-serif;
+    --vscode-editor-font-family: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+    --vscode-foreground: #3b3b3b;
+    --vscode-descriptionForeground: #6f6f6f;
+    --vscode-errorForeground: #c72e0f;
+    --vscode-sideBar-background: #f8f8f8;
+    --vscode-editor-background: #ffffff;
+    --vscode-panel-border: #e5e5e5;
+    --vscode-focusBorder: #005fb8;
+    --vscode-list-hoverBackground: #f0f0f0;
+    --vscode-input-background: #ffffff;
+    --vscode-input-border: #cecece;
+    --vscode-input-foreground: #3b3b3b;
+    --vscode-button-background: #005fb8;
+    --vscode-button-foreground: #ffffff;
+    --vscode-button-hoverBackground: #0258a8;
+    --vscode-button-border: #0000001a;
+    --vscode-button-secondaryBackground: #e5e5e5;
+    --vscode-button-secondaryForeground: #3b3b3b;
+    --vscode-badge-background: #cccccc;
+    --vscode-badge-foreground: #3b3b3b;
+    --vscode-textLink-foreground: #005fb8;
+    --vscode-textCodeBlock-background: #f2f2f2;
+    --vscode-progressBar-background: #005fb8;
+    --vscode-inputValidation-warningBorder: #b89500;
+    --vscode-editorWarning-foreground: #bf8803;
+    --vscode-toolbar-hoverBackground: #b8b8b850;
+    --vscode-scrollbarSlider-background: #64646466;
+    --vscode-scrollbarSlider-hoverBackground: #646464b3;
+    --vscode-tab-activeBackground: #ffffff;
+    --vscode-tab-activeForeground: #3b3b3b;
+    --vscode-tab-inactiveBackground: #f8f8f8;
+    --vscode-tab-inactiveForeground: #868686;
+    --vscode-editorGroupHeader-tabsBackground: #f8f8f8;
+    --vscode-menu-background: #ffffff;
+    --vscode-menu-foreground: #3b3b3b;
+    --vscode-menu-border: #cecece;
+    --vscode-menu-selectionBackground: #005fb8;
+    --vscode-menu-selectionForeground: #ffffff;
+    --vscode-menu-separatorBackground: #d4d4d4;
+    --vscode-charts-green: #388a34;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+  :root {
+    --vscode-foreground: #cccccc;
+    --vscode-descriptionForeground: #9d9d9d;
+    --vscode-errorForeground: #f85149;
+    --vscode-sideBar-background: #181818;
+    --vscode-editor-background: #1f1f1f;
+    --vscode-panel-border: #2b2b2b;
+    --vscode-focusBorder: #0078d4;
+    --vscode-list-hoverBackground: #2a2d2e;
+    --vscode-input-background: #313131;
+    --vscode-input-border: #3c3c3c;
+    --vscode-input-foreground: #cccccc;
+    --vscode-button-background: #0078d4;
+    --vscode-button-foreground: #ffffff;
+    --vscode-button-hoverBackground: #026ec1;
+    --vscode-button-border: #ffffff12;
+    --vscode-button-secondaryBackground: #313131;
+    --vscode-button-secondaryForeground: #cccccc;
+    --vscode-badge-background: #616161;
+    --vscode-badge-foreground: #f8f8f8;
+    --vscode-textLink-foreground: #4daafc;
+    --vscode-textCodeBlock-background: #2b2b2b;
+    --vscode-progressBar-background: #0078d4;
+    --vscode-inputValidation-warningBorder: #b89500;
+    --vscode-editorWarning-foreground: #cca700;
+    --vscode-toolbar-hoverBackground: #5a5d5e50;
+    --vscode-scrollbarSlider-background: #79797966;
+    --vscode-scrollbarSlider-hoverBackground: #646464b3;
+    --vscode-tab-activeBackground: #1f1f1f;
+    --vscode-tab-activeForeground: #ffffff;
+    --vscode-tab-inactiveBackground: #181818;
+    --vscode-tab-inactiveForeground: #9d9d9d;
+    --vscode-editorGroupHeader-tabsBackground: #181818;
+    --vscode-menu-background: #1f1f1f;
+    --vscode-menu-foreground: #cccccc;
+    --vscode-menu-border: #454545;
+    --vscode-menu-selectionBackground: #0078d4;
+    --vscode-menu-selectionForeground: #ffffff;
+    --vscode-menu-separatorBackground: #454545;
+    --vscode-charts-green: #89d185;
+  }
+  }
+  html { background: var(--vscode-sideBar-background); }
+  body.browser { max-width: 920px; margin: 0 auto;
+    border-left: 1px solid var(--vscode-panel-border); border-right: 1px solid var(--vscode-panel-border); }
+  #hdr { display: flex; gap: 8px; align-items: center; padding: 6px 10px; font-size: 12px;
+    color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); }
+  #hdr .hdr-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--vscode-foreground); }
+  #hdr .hdr-where { min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #hdr .hdr-conn:empty { display: none; }
+  #hdr .hdr-conn { color: var(--vscode-inputValidation-warningBorder); white-space: nowrap; }
+  #hdr button { font: inherit; cursor: pointer; border: none; border-radius: 4px; padding: 1px 6px;
+    background: transparent; color: inherit; }
+  #hdr button:hover { background: var(--vscode-toolbar-hoverBackground); }
+  #toasts { display: flex; flex-direction: column; gap: 4px; padding: 0 8px; }
+  #toasts:empty { display: none; }
+  .toast { display: flex; gap: 8px; align-items: center; margin-top: 6px; padding: 6px 9px;
+    border-radius: 6px; font-size: 12px; animation: exIn 160ms ease-out;
+    background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); }
+  .toast.warn { border-color: var(--vscode-inputValidation-warningBorder); }
+  .toast span { flex: 1; min-width: 0; word-break: break-word; }
+  .toast button { font: inherit; font-size: 11.5px; cursor: pointer; padding: 2px 9px; border-radius: 4px;
+    border: 1px solid var(--vscode-button-border); background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground); }
+  .toast i { font-style: normal; cursor: pointer; opacity: .6; padding: 0 3px; }
+  .toast i:hover { opacity: 1; }
+  #dlg { display: none; position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.35);
+    align-items: flex-start; justify-content: center; padding: 12vh 16px 0; }
+  #dlg.open { display: flex; }
+  .dlg-box { width: 100%; max-width: 480px; padding: 12px; border-radius: 8px;
+    background: var(--vscode-menu-background); color: var(--vscode-menu-foreground);
+    border: 1px solid var(--vscode-menu-border); box-shadow: 0 8px 28px rgba(0,0,0,.35); }
+  .dlg-title { font-weight: 600; margin-bottom: 6px; }
+  .dlg-prompt { color: var(--vscode-descriptionForeground); font-size: 12px; margin-bottom: 8px; }
+  .dlg-input { width: 100%; padding: 6px 8px; font: inherit; border-radius: 4px; outline: none;
+    color: var(--vscode-input-foreground); background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border); }
+  .dlg-input:focus { border-color: var(--vscode-focusBorder); }
+  .dlg-err { color: var(--vscode-errorForeground); font-size: 11.5px; min-height: 16px; margin-top: 4px; }
+  .dlg-list { display: flex; flex-direction: column; gap: 3px; max-height: 50vh; overflow-y: auto; }
+  .dlg-item { text-align: left; padding: 6px 9px; border-radius: 5px; cursor: pointer; font: inherit;
+    color: inherit; background: transparent; border: 1px solid var(--vscode-panel-border); }
+  .dlg-item:hover, .dlg-item:focus { background: var(--vscode-list-hoverBackground); outline: none; }
+  .dlg-item small { margin-left: 6px; color: var(--vscode-descriptionForeground); }
+  .dlg-detail { font-size: 11px; color: var(--vscode-descriptionForeground); margin-top: 2px; }
+  .dlg-btns { display: flex; gap: 6px; justify-content: flex-end; margin-top: 10px; }
+  .dlg-btns button { padding: 4px 12px; border-radius: 4px; cursor: pointer; font: inherit;
+    border: 1px solid var(--vscode-button-border); background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground); }
+  .dlg-btns button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+  /* No editor to open a file in: paths in answers are plain text here. */
+  body.browser .assistant a[data-file] { cursor: text; color: inherit; text-decoration: none; }
+  body.browser .files span { cursor: default; }
+</style>
+</head>
+<body class="browser">
+  <div id="hdr"></div>
+  <div id="toasts"></div>
+  <div id="tabs"></div>
+  <div id="machine"></div>
+  <div id="start"></div>
+  <div id="log">
+    <div id="empty">Describe a task — the agent works right inside your project folder.
+The active file and selection are attached automatically (execai.attachContext setting).
+Files: hold Shift to drag them here, paste with Ctrl+V, or use the + button.</div>
+  </div>
+  <div id="agents"></div>
+  <div id="composer">
+    <div id="menu"></div>
+    <div id="status" title="Model and source — click to change">…</div>
+    <div id="ro"><span>Read-only: what the subagent has done so far.</span><button id="roBack">Back to the chat</button></div>
+    <div id="chips"></div>
+    <div id="box">
+      <textarea id="inp" placeholder="What should be done in this project?"></textarea>
+      <div id="bar">
+        <button id="filesBtn" title="Attach files">+</button>
+        <button id="cmdBtn" title="execai commands">&gt;_</button>
+        <button id="histBtn" title="Chat history">⏱</button>
+        <span id="hint">Enter — send</span>
+        <span id="timer">0.0s</span>
+        <button id="sendBtn" title="Send">➤</button>
+        <button id="stopBtn" title="Stop the turn">■</button>
+      </div>
+    </div>
+  </div>
+  <div id="dlg"></div>
+<script nonce="{{NONCE}}">
+window.execaiPage = {"T":{"empty":"Describe a task — the agent works right inside your project folder.\nThe active file and selection are attached automatically (execai.attachContext setting).\nFiles: hold Shift to drag them here, paste with Ctrl+V, or use the + button.","statusTitle":"Model and source — click to change","placeholder":"What should be done in this project?","attachTitle":"Attach files","cmdTitle":"execai commands","histTitle":"Chat history","hintEnter":"Enter — send","sendTitle":"Send","stopTitle":"Stop the turn","secs":"s","notSignedIn":"not signed in","mSecurity":"Security level","mResume":"Continue the last chat","mModel":"Model","mSource":"Source","mConnect":"Connect a source","mEffort":"Reasoning level","mMaxIter":"Iteration limit","mSubagentIter":"Subagent steps","mLogout":"Sign out of ExecAI","mLogin":"Sign in to ExecAI","loginNone":"not signed in","mNewChat":"New chat","mRestart":"Restart the agent","mTerminal":"Open execai in a terminal","mCheckUpdates":"Check for Studio updates","tabBusy":"the agent is working here","tabUnseen":"finished — not read yet","tabAsk":"waiting for your answer","tabWake":"will wake up at ","wakeNotice":"will wake up at ","wakeNow":"Now","wakeCancel":"Cancel","wakeCancelled":"Wake-up cancelled.","autoTurn":"woke up: ","queued":"Queued — other chats are still answering.","copy":"copy","copied":"copied ✓","copyMsg":"copy the answer","newTabTitle":"New chat","closeTab":"Close the tab (the chat stays in history)","untitledChat":"New chat","back":"← back","listEmpty":"the list has not arrived yet — reopen the menu","histHead":"History of this project","histEmpty":"nothing yet — this is the first chat","askPerm":"The agent asks for permission — ","askQuestion":"The agent is asking","dragSeen":"⤵ drag detected, types: ","dragNone":"none","dropUnknown":"Drop not recognized. Types: ","agentReady":"Agent ready: ","thinkingClosed":"reasoning ▸","thinkingOpen":"reasoning ▾","newChatNotice":"New chat.","chatRestored":"Chat restored — carry on.","loginConfirm":"Confirm the sign-in in a browser","loginCode":"  ·  code ","loginCopy":"copy the link","loginCopied":"copied ✓","signedIn":"Signed in: ","agentExited":"The agent exited.","restartBtn":"Restart","inboxListening":"Tasks from the web: accepted in this window","inboxOtherServe":"Tasks from the web are accepted by the background execai serve","inboxTake":"Accept here","inboxOtherIde":"Tasks from the web are accepted by another window: ","inboxNoPlan":"Running tasks from the web is available on the Work and Max plans","inboxPlans":"Choose a plan","inboxDisabled":"Accepting tasks from the web is turned off","inboxNotLoggedIn":"Sign in to accept tasks from the web","mProject":"Project","projectNone":"not bound","mUnbind":"Unbind the project","tabWeb":"a task from the web","webTurn":"From the web: ","askResolved":"Answered on the web — the question is closed.","askCancelled":"The question was withdrawn.","agentsHead":"Agents","agentsRunning":"{n} running","agentsDone":"{n} done","agentsFailed":"{n} failed","agentsToggle":"Subagents — click to fold or unfold","agentStop":"Stop","agentStopTitle":"Stop this subagent","agentMore":"+25","agentMoreTitle":"Give this agent 25 more steps","agentContinue":"Continue (+25)","agentContinueTitle":"The agent hit its step limit — continue from where it stopped for 25 more steps","agentOpenTitle":"Click to open what it has done (read-only)","agSteps":"step {i}/{m} · {n} left","agExhausted":"hit the step limit","agQueued":"queued","agRunning":"working","agWaiting":"waiting for your answer","agDone":"done","agFailed":"failed","agCancelled":"stopped","agTokens":"tokens","tabAgents":"subagents at work","agentTab":"a subagent — read-only","agentReadOnly":"Read-only: what the subagent has done so far.","agentBack":"Back to the chat","askFromAgent":"Subagent: ","mStart":"Getting started","mMachine":"My machine","startTitle":"Getting started","startLead":"Five steps, and the agent is with you everywhere: in the editor, in the web chat and on your phone.","startClose":"Close — it comes back from the menu: Getting started","stDone":"done","stTodo":"not yet","stLogin":"Sign in to ExecAI","stLoginWhy":"The account ties together your machines, the web chat and the phone.","stLoginBtn":"Sign in","stModels":"Connect models","stModelsWhy":"Your own provider keys or an ExecAI plan — the agent works the same with either.","stModelsBtn":"Connect a source","stSync":"Turn on sync","stSyncWhy":"The same keys, settings and memory on every machine of your account.","stSyncBtn":"Turn on in a terminal","stSyncBtnCopy":"Copy the command","stSyncCmd":"In a terminal: ","syncGoes":"Goes to your account: settings and provider keys (encrypted with your sync password), personal memory, projects.","syncStays":"Stays on this machine: the server address.","syncPassword":"The sync password cannot be recovered — write it down.","stProject":"Bind this folder to a project","stProjectWhy":"The folder becomes a project in the web chat with the same memory; tasks from the web and the phone run here.","stProjectBtn":"Bind…","stProjectBound":"Bound to: ","stProjectNone":"Not bound yet.","stPhone":"Call the agent from your phone","stPhoneWhy":"Point the camera at the code: the web chat opens with this machine selected, whatever models it runs.","stPhoneBtn":"Show the QR code","stPhoneHide":"Hide the code","stPhoneNoLink":"The agent has not sent the link yet.","qrOpen":"open","srcAlive":"answered","srcDead":"no answer","srcNone":"Nothing connected yet.","agoNow":"just now","agoMin":"min ago","agoHour":"h ago","agoDay":"d ago","machineTitle":"My machine","machineLoading":"Asking the agent…","machineOld":"This agent does not describe its machine yet — update the agent.","machineUpdate":"Update the agent","machineRefresh":"Refresh","machineClose":"Close","machineQr":"QR for the phone","rowMachine":"Machine","rowAgent":"Agent","rowAccount":"Account","rowModels":"Models","rowSync":"Sync","rowReach":"Reach","accNone":"not signed in","planLabel":"plan ","planNone":"no plan","planStart":"Start","planWork":"Work","planMax":"Max","syncOn":"on","syncOff":"off","syncLast":"last sent","syncHasConfig":"settings and provider keys, encrypted","syncMemory":"personal memory, files","syncProjects":"projects","modeAll":"syncs all projects","modeSelected":"syncs the selected projects","modeNone":"syncs no projects — settings and personal memory only","reachListening":"accepts tasks from the web","reachNoListener":"nobody accepts tasks from the web on this machine","reachWeb":"can be called from the web chat and the phone","reachNoWeb":"not reachable from the web chat yet"},"l10n":{}};
+window.execaiPage.config = {{CONFIG}};
+"use strict";(()=>{var zt=Object.defineProperty;var Ht=(i,t,e)=>t in i?zt(i,t,{enumerable:!0,configurable:!0,writable:!0,value:e}):i[t]=e;var g=(i,t,e)=>Ht(i,typeof t!="symbol"?t+"":t,e);var Wt=["listening","other_serve","other_ide","no_plan","disabled","not_logged_in"],lt="https://chat.execai.ru/settings/payment?utm_source=agent&utm_medium=vscode&utm_campaign=inbox";function ct(i){return i.replace(/^https?:\/\//,"").replace(/[?#].*$/,"")}function _(i){return typeof i=="string"?i:typeof i=="number"?String(i):""}function ht(i){if(!i||typeof i!="object")return null;let t=i,e=_(t.id)||_(t.workspace_id);return e?{id:e,name:_(t.name)||_(t.label)||_(t.title)||e}:null}function ut(i){let t=null;if(i.type==="inbox"?t=i:i.type==="state"&&i.inbox!=null&&(t=typeof i.inbox=="string"?{...i,state:i.inbox}:{...i,...i.inbox}),!t)return null;let e=_(t.state);if(!Wt.includes(e))return null;let n={state:e,bound_workspace:ht(t.bound_workspace)},s=Number(t.owner_pid);Number.isFinite(s)&&s>0&&(n.owner_pid=s);let o=_(t.owner_cwd);return o&&(n.owner_cwd=o),n}function dt(i){let t;if(i.type==="workspaces"?t=i.items??i.workspaces:i.type==="state"&&(t=i.workspaces),!Array.isArray(t))return null;let e=[];for(let n of t){let s=ht(n);s&&e.push(s)}return e}function F(i){return!!i&&i.origin==="web"}function pt(i,t=8,e=60){let n=(i||"").replace(/\s+/g," ").trim().split(" ").filter(Boolean),s="",o=0;for(let r of n){let l=s?s+" "+r:r;if(o>=t||l.length>e)return(s||r.slice(0,e))+"\u2026";s=l,o++}return s}var rt=["login","models","sync","project","phone"];function O(i){return i&&typeof i=="object"&&!Array.isArray(i)?i:{}}function at(i){let t=typeof i=="number"?i:typeof i=="string"&&i.trim()?Number(i):NaN;return Number.isFinite(t)&&t>0?Math.floor(t):0}function ft(i){if(i.type!=="machine_state")return null;let t=i.machine;if(!t||typeof t!="object"||Array.isArray(t))return null;let e=t,n=[];for(let y of Array.isArray(e.sources)?e.sources:[]){let C=O(y),P=_(C.id);P&&n.push({id:P,title:_(C.title)||_(C.label)||P,alive:C.alive===!0,checked_at:_(C.checked_at)})}let s=O(e.sync),o=_(s.mode),r=O(e.presence),l={id:_(e.id),name:_(e.name),os:_(e.os),version:_(e.version),logged_in:e.logged_in===!0,email_masked:_(e.email_masked),plan:_(e.plan),sources:n,sync:{enabled:s.enabled===!0,last_push_at:_(s.last_push_at),config:s.config===!0,personal_memory_files:at(s.personal_memory_files),projects:at(s.projects),mode:o==="all"||o==="selected"||o==="none"?o:""},presence:{listener_running:r.listener_running===!0,reachable_from_web:r.reachable_from_web===!0}},h=i.tutorial,d=Array.isArray(h)?h:Array.isArray(O(h).steps)?O(h).steps:[],x=new Map;for(let y of d){let C=O(y),P=_(C.id);rt.includes(P)&&!x.has(P)&&x.set(P,C.done===!0)}let b=rt.filter(y=>x.has(y)).map(y=>({id:y,done:!!x.get(y)})),m=typeof i.phone_url=="string"?i.phone_url.trim():"",E=/^https?:\/\/[^\s/]+(\/\S*)?$/i.test(m)?m:"";return{machine:l,tutorial:b,phone_url:E}}function gt(i){return i.type==="error"&&!i.chat&&/\bmachine_state\b/.test(i.text||"")}var L={user:(i,t,e)=>({type:"user",text:i,context:t,chat:e}),answer:(i,t)=>({type:"answer",id:i,value:t}),stop:i=>({type:"stop",chat:i}),newChat:()=>({type:"new_chat"}),command:(i,t,e,n)=>({type:"command",name:i,value:t,...e,chat:n})};function mt(i,t=()=>!0){return{get alive(){return t()},sendUser:(e,n,s)=>i(L.user(e,n,s)),sendAnswer:(e,n)=>i(L.answer(e,n)),stop:e=>i(L.stop(e)),newChat:()=>i(L.newChat()),sendCommand:(e,n,s,o)=>i(L.command(e,n,s,o))}}var N=(i=>(i[i.Border=-1]="Border",i[i.Data=0]="Data",i[i.Function=1]="Function",i[i.Position=2]="Position",i[i.Timing=3]="Timing",i[i.Alignment=4]="Alignment",i))(N||{}),Ut=[0,1],wt=[1,0],vt=[2,3],kt=[3,2],$t={L:Ut,M:wt,Q:vt,H:kt},jt=/^\d*$/,Kt=/^[A-Z0-9 $%*+./:-]*$/,q="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:",G=1,V=40,bt=3,qt=3,W=40,Dt=10,yt=[[-1,7,10,15,20,26,18,20,24,30,18,20,24,26,30,22,24,28,30,28,28,28,28,30,30,26,28,30,30,30,30,30,30,30,30,30,30,30,30,30,30],[-1,10,16,26,18,24,16,18,22,22,26,30,22,22,24,24,28,28,26,26,26,26,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28],[-1,13,22,18,26,18,24,18,22,20,24,28,26,24,20,30,24,28,28,26,30,28,30,30,30,30,28,30,30,30,30,30,30,30,30,30,30,30,30,30,30],[-1,17,28,22,16,22,28,26,26,24,28,24,28,22,24,24,30,28,28,26,28,30,24,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30]],_t=[[-1,1,1,1,1,1,2,2,2,2,4,4,4,4,4,6,6,6,6,7,8,8,9,9,10,12,12,12,13,14,15,16,17,18,19,19,20,21,22,24,25],[-1,1,1,1,2,2,4,4,4,5,5,5,8,9,9,10,10,11,13,14,16,17,17,18,20,21,23,25,26,28,29,31,33,35,37,38,40,43,45,47,49],[-1,1,1,2,2,4,4,6,6,8,8,8,10,12,16,12,17,16,18,21,20,23,23,25,27,29,34,34,35,38,40,43,45,48,51,53,56,59,62,65,68],[-1,1,1,2,4,4,4,5,6,8,8,11,11,16,16,18,16,19,21,25,25,25,34,30,32,35,37,40,42,45,48,51,54,57,60,63,66,70,74,77,81]],D=class{constructor(t,e,n,s){g(this,"size");g(this,"mask");g(this,"modules",[]);g(this,"types",[]);if(this.version=t,this.ecc=e,t<G||t>V)throw new RangeError("Version value out of range");if(s<-1||s>7)throw new RangeError("Mask value out of range");this.size=t*4+17;let o=Array.from({length:this.size}).fill(!1);for(let l=0;l<this.size;l++)this.modules.push(o.slice()),this.types.push(o.map(()=>0));this.drawFunctionPatterns();let r=this.addEccAndInterleave(n);if(this.drawCodewords(r),s===-1){let l=1e9;for(let h=0;h<8;h++){this.applyMask(h),this.drawFormatBits(h);let d=this.getPenaltyScore();d<l&&(s=h,l=d),this.applyMask(h)}}this.mask=s,this.applyMask(s),this.drawFormatBits(s)}getModule(t,e){return t>=0&&t<this.size&&e>=0&&e<this.size&&this.modules[e][t]}drawFunctionPatterns(){for(let n=0;n<this.size;n++)this.setFunctionModule(6,n,n%2===0,N.Timing),this.setFunctionModule(n,6,n%2===0,N.Timing);this.drawFinderPattern(3,3),this.drawFinderPattern(this.size-4,3),this.drawFinderPattern(3,this.size-4);let t=this.getAlignmentPatternPositions(),e=t.length;for(let n=0;n<e;n++)for(let s=0;s<e;s++)n===0&&s===0||n===0&&s===e-1||n===e-1&&s===0||this.drawAlignmentPattern(t[n],t[s]);this.drawFormatBits(0),this.drawVersion()}drawFormatBits(t){let e=this.ecc[1]<<3|t,n=e;for(let o=0;o<10;o++)n=n<<1^(n>>>9)*1335;let s=(e<<10|n)^21522;for(let o=0;o<=5;o++)this.setFunctionModule(8,o,T(s,o));this.setFunctionModule(8,7,T(s,6)),this.setFunctionModule(8,8,T(s,7)),this.setFunctionModule(7,8,T(s,8));for(let o=9;o<15;o++)this.setFunctionModule(14-o,8,T(s,o));for(let o=0;o<8;o++)this.setFunctionModule(this.size-1-o,8,T(s,o));for(let o=8;o<15;o++)this.setFunctionModule(8,this.size-15+o,T(s,o));this.setFunctionModule(8,this.size-8,!0)}drawVersion(){if(this.version<7)return;let t=this.version;for(let n=0;n<12;n++)t=t<<1^(t>>>11)*7973;let e=this.version<<12|t;for(let n=0;n<18;n++){let s=T(e,n),o=this.size-11+n%3,r=Math.floor(n/3);this.setFunctionModule(o,r,s),this.setFunctionModule(r,o,s)}}drawFinderPattern(t,e){for(let n=-4;n<=4;n++)for(let s=-4;s<=4;s++){let o=Math.max(Math.abs(s),Math.abs(n)),r=t+s,l=e+n;r>=0&&r<this.size&&l>=0&&l<this.size&&this.setFunctionModule(r,l,o!==2&&o!==4,N.Position)}}drawAlignmentPattern(t,e){for(let n=-2;n<=2;n++)for(let s=-2;s<=2;s++)this.setFunctionModule(t+s,e+n,Math.max(Math.abs(s),Math.abs(n))!==1,N.Alignment)}setFunctionModule(t,e,n,s=N.Function){this.modules[e][t]=n,this.types[e][t]=s}addEccAndInterleave(t){let e=this.version,n=this.ecc;if(t.length!==U(e,n))throw new RangeError("Invalid argument");let s=_t[n[0]][e],o=yt[n[0]][e],r=Math.floor(Y(e)/8),l=s-r%s,h=Math.floor(r/s),d=[],x=ee(o);for(let m=0,E=0;m<s;m++){let y=t.slice(E,E+h-o+(m<l?0:1));E+=y.length;let C=ne(y,x);m<l&&y.push(0),d.push(y.concat(C))}let b=[];for(let m=0;m<d[0].length;m++)d.forEach((E,y)=>{(m!==h-o||y>=l)&&b.push(E[m])});return b}drawCodewords(t){if(t.length!==Math.floor(Y(this.version)/8))throw new RangeError("Invalid argument");let e=0;for(let n=this.size-1;n>=1;n-=2){n===6&&(n=5);for(let s=0;s<this.size;s++)for(let o=0;o<2;o++){let r=n-o,h=(n+1&2)===0?this.size-1-s:s;!this.types[h][r]&&e<t.length*8&&(this.modules[h][r]=T(t[e>>>3],7-(e&7)),e++)}}}applyMask(t){if(t<0||t>7)throw new RangeError("Mask value out of range");for(let e=0;e<this.size;e++)for(let n=0;n<this.size;n++){let s;switch(t){case 0:s=(n+e)%2===0;break;case 1:s=e%2===0;break;case 2:s=n%3===0;break;case 3:s=(n+e)%3===0;break;case 4:s=(Math.floor(n/3)+Math.floor(e/2))%2===0;break;case 5:s=n*e%2+n*e%3===0;break;case 6:s=(n*e%2+n*e%3)%2===0;break;case 7:s=((n+e)%2+n*e%3)%2===0;break;default:throw new Error("Unreachable")}!this.types[e][n]&&s&&(this.modules[e][n]=!this.modules[e][n])}}getPenaltyScore(){let t=0;for(let o=0;o<this.size;o++){let r=!1,l=0,h=[0,0,0,0,0,0,0];for(let d=0;d<this.size;d++)this.modules[o][d]===r?(l++,l===5?t+=bt:l>5&&t++):(this.finderPenaltyAddHistory(l,h),r||(t+=this.finderPenaltyCountPatterns(h)*W),r=this.modules[o][d],l=1);t+=this.finderPenaltyTerminateAndCount(r,l,h)*W}for(let o=0;o<this.size;o++){let r=!1,l=0,h=[0,0,0,0,0,0,0];for(let d=0;d<this.size;d++)this.modules[d][o]===r?(l++,l===5?t+=bt:l>5&&t++):(this.finderPenaltyAddHistory(l,h),r||(t+=this.finderPenaltyCountPatterns(h)*W),r=this.modules[d][o],l=1);t+=this.finderPenaltyTerminateAndCount(r,l,h)*W}for(let o=0;o<this.size-1;o++)for(let r=0;r<this.size-1;r++){let l=this.modules[o][r];l===this.modules[o][r+1]&&l===this.modules[o+1][r]&&l===this.modules[o+1][r+1]&&(t+=qt)}let e=0;for(let o of this.modules)e=o.reduce((r,l)=>r+(l?1:0),e);let n=this.size*this.size,s=Math.ceil(Math.abs(e*20-n*10)/n)-1;return t+=s*Dt,t}getAlignmentPatternPositions(){if(this.version===1)return[];{let t=Math.floor(this.version/7)+2,e=this.version===32?26:Math.ceil((this.version*4+4)/(t*2-2))*2,n=[6];for(let s=this.size-7;n.length<t;s-=e)n.splice(1,0,s);return n}}finderPenaltyCountPatterns(t){let e=t[1],n=e>0&&t[2]===e&&t[3]===e*3&&t[4]===e&&t[5]===e;return(n&&t[0]>=e*4&&t[6]>=e?1:0)+(n&&t[6]>=e*4&&t[0]>=e?1:0)}finderPenaltyTerminateAndCount(t,e,n){return t&&(this.finderPenaltyAddHistory(e,n),e=0),e+=this.size,this.finderPenaltyAddHistory(e,n),this.finderPenaltyCountPatterns(n)}finderPenaltyAddHistory(t,e){e[0]===0&&(t+=this.size),e.pop(),e.unshift(t)}};function I(i,t,e){if(t<0||t>31||i>>>t)throw new RangeError("Value out of range");for(let n=t-1;n>=0;n--)e.push(i>>>n&1)}function T(i,t){return(i>>>t&1)!==0}var B=class{constructor(t,e,n){if(this.mode=t,this.numChars=e,this.bitData=n,e<0)throw new RangeError("Invalid argument");this.bitData=n.slice()}getData(){return this.bitData.slice()}},Yt=[1,10,12,14],Jt=[2,9,11,13],Gt=[4,8,16,16];function xt(i,t){return i[Math.floor((t+7)/17)+1]}function Ct(i){let t=[];for(let e of i)I(e,8,t);return new B(Gt,i.length,t)}function Vt(i){if(!At(i))throw new RangeError("String contains non-numeric characters");let t=[];for(let e=0;e<i.length;){let n=Math.min(i.length-e,3);I(Number.parseInt(i.substring(e,e+n),10),n*3+1,t),e+=n}return new B(Yt,i.length,t)}function Xt(i){if(!Mt(i))throw new RangeError("String contains unencodable characters in alphanumeric mode");let t=[],e;for(e=0;e+2<=i.length;e+=2){let n=q.indexOf(i.charAt(e))*45;n+=q.indexOf(i.charAt(e+1)),I(n,11,t)}return e<i.length&&I(q.indexOf(i.charAt(e)),6,t),new B(Jt,i.length,t)}function Zt(i){return i===""?[]:At(i)?[Vt(i)]:Mt(i)?[Xt(i)]:[Ct(te(i))]}function At(i){return jt.test(i)}function Mt(i){return Kt.test(i)}function Qt(i,t){let e=0;for(let n of i){let s=xt(n.mode,t);if(n.numChars>=1<<s)return Number.POSITIVE_INFINITY;e+=4+s+n.bitData.length}return e}function te(i){i=encodeURI(i);let t=[];for(let e=0;e<i.length;e++)i.charAt(e)!=="%"?t.push(i.charCodeAt(e)):(t.push(Number.parseInt(i.substring(e+1,e+3),16)),e+=2);return t}function Y(i){if(i<G||i>V)throw new RangeError("Version number out of range");let t=(16*i+128)*i+64;if(i>=2){let e=Math.floor(i/7)+2;t-=(25*e-10)*e-55,i>=7&&(t-=36)}return t}function U(i,t){return Math.floor(Y(i)/8)-yt[t[0]][i]*_t[t[0]][i]}function ee(i){if(i<1||i>255)throw new RangeError("Degree out of range");let t=[];for(let n=0;n<i-1;n++)t.push(0);t.push(1);let e=1;for(let n=0;n<i;n++){for(let s=0;s<t.length;s++)t[s]=J(t[s],e),s+1<t.length&&(t[s]^=t[s+1]);e=J(e,2)}return t}function ne(i,t){let e=t.map(n=>0);for(let n of i){let s=n^e.shift();e.push(0),t.forEach((o,r)=>e[r]^=J(o,s))}return e}function J(i,t){if(i>>>8||t>>>8)throw new RangeError("Byte out of range");let e=0;for(let n=7;n>=0;n--)e=e<<1^(e>>>7)*285,e^=(t>>>n&1)*i;return e}function ie(i,t,e=1,n=40,s=-1,o=!0){if(!(G<=e&&e<=n&&n<=V)||s<-1||s>7)throw new RangeError("Invalid value");let r,l;for(r=e;;r++){let b=U(r,t)*8,m=Qt(i,r);if(m<=b){l=m;break}if(r>=n)throw new RangeError("Data too long")}for(let b of[wt,vt,kt])o&&l<=U(r,b)*8&&(t=b);let h=[];for(let b of i){I(b.mode[0],4,h),I(b.numChars,xt(b.mode,r),h);for(let m of b.getData())h.push(m)}let d=U(r,t)*8;I(0,Math.min(4,d-h.length),h),I(0,(8-h.length%8)%8,h);for(let b=236;h.length<d;b^=253)I(b,8,h);let x=Array.from({length:Math.ceil(h.length/8)},()=>0);return h.forEach((b,m)=>x[m>>>3]|=b<<7-(m&7)),new D(r,t,x,s)}function Et(i,t){let{ecc:e="L",boostEcc:n=!1,minVersion:s=1,maxVersion:o=40,maskPattern:r=-1,border:l=1}=t||{},h=typeof i=="string"?Zt(i):Array.isArray(i)?[Ct(i)]:void 0;if(!h)throw new Error(`uqr only supports encoding string and binary data, but got: ${typeof i}`);let d=ie(h,$t[e],s,o,r,n),x=se({version:d.version,maskPattern:d.mask,size:d.size,data:d.modules,types:d.types},l);return t?.invert&&(x.data=x.data.map(b=>b.map(m=>!m))),t?.onEncoded?.(x),x}function se(i,t=1){if(!t)return i;let{size:e}=i,n=e+t*2;i.size=n,i.data.forEach(o=>{for(let r=0;r<t;r++)o.unshift(!1),o.push(!1)});for(let o=0;o<t;o++)i.data.unshift(Array.from({length:n},r=>!1)),i.data.push(Array.from({length:n},r=>!1));let s=N.Border;i.types.forEach(o=>{for(let r=0;r<t;r++)o.unshift(s),o.push(s)});for(let o=0;o<t;o++)i.types.unshift(Array.from({length:n},r=>s)),i.types.push(Array.from({length:n},r=>s));return i}function oe(i,t=2){let e=Et(i,{ecc:"M",border:0}),n=e.size+2*t,s=[];for(let o=0;o<n;o++){let r=[];for(let l=0;l<n;l++){let h=l-t,d=o-t;r.push(h>=0&&d>=0&&h<e.size&&d<e.size&&!!e.data[d][h])}s.push(r)}return s}function Pt(i,t=2){if(!i)return null;let e;try{e=oe(i,t)}catch{return null}let n="";for(let s=0;s<e.length;s++){let o=0;for(;o<e.length;){if(!e[s][o]){o++;continue}let r=1;for(;o+r<e.length&&e[s][o+r];)r++;n+=`M${o} ${s}h${r}v1h-${r}z`,o+=r}}return{size:e.length,path:n}}var ae=15e3,X="execai.startDismissed";function le(i){let t=(i||"").trim().split(/\s+/).filter(Boolean);return t.every(e=>/^[a-z][a-z-]*$/.test(e))?t:[]}var $=class{constructor(t){this.h=t;g(this,"activeChat",null);g(this,"lastState",null);g(this,"wsWaiters",[]);g(this,"flags",new Map);g(this,"chatLabels",new Map);g(this,"inbox",null);g(this,"webPending",new Set);g(this,"webToasted",new Set);g(this,"fleetSeen",!1);g(this,"expectChats",new Set);g(this,"expectNew",0);g(this,"resumePending",!1);g(this,"adopted",!1);g(this,"machine",null);g(this,"machineKnown",null);g(this,"machineTimer",null);g(this,"qrCache",{url:"",pic:null});g(this,"statusMain","ExecAI");g(this,"statusTurn",!1)}agent(){let t=this.h.agent();return!t||!this.h.sharedStream?t:{get alive(){return t.alive},sendUser:(e,n,s)=>t.sendUser(e,n,s),sendAnswer:(e,n)=>t.sendAnswer(e,n),stop:e=>t.stop(e),newChat:()=>{this.expectNew++,t.newChat()},sendCommand:(e,n,s,o)=>{e==="load_chat"&&n&&this.expectChats.add(n),e==="resume_last"&&(this.resumePending=!0),t.sendCommand(e,n,s,o)}}}takesSwitch(t){if(!this.h.sharedStream)return!0;let e=t.chat||"";return t.type==="chat_loaded"&&(this.resumePending=!1),t.type==="chat_loaded"&&this.expectChats.delete(e)?!0:t.type==="chat_reset"&&this.expectNew>0?(this.expectNew--,!0):this.activeChat===null||e===this.activeChat}paintStatus(){let t=this.inboxStatus(),e=this.statusMain;t&&(e+=" \xB7 "+t.text),this.statusTurn&&(e+=" \xB7 "+this.h.l10n.t("turn\u2026")),this.h.status(e,t?.tooltip)}inboxStatus(){let t=this.inbox;if(!t)return null;let e=this.h.l10n,n,s;switch(t.state){case"listening":n=e.t("web: on"),s=e.t("Tasks from the web are accepted in this window.");break;case"other_serve":n=e.t("web: serve"),s=e.t("Tasks from the web are accepted by the background execai serve. To accept them here: the panel menu \u2192 Accept here.");break;case"other_ide":n=e.t("web: other window"),s=e.t("Tasks from the web are accepted by another window: {0}",t.owner_cwd||"?");break;case"no_plan":n=e.t("web: plan needed"),s=e.t("Running tasks from the web is available on the Work and Max plans: {0}",ct(lt));break;case"disabled":n=e.t("web: off"),s=e.t("Accepting tasks from the web is turned off.");break;case"not_logged_in":n=e.t("web: sign in"),s=e.t("Sign in to ExecAI to accept tasks from the web.");break}return t.bound_workspace&&(s+=`
+`+e.t("Project: {0}",t.bound_workspace.name)),{text:"$(globe) "+n,tooltip:s}}setInbox(t){this.inbox=t,this.paintStatus(),this.h.post({type:"inbox",...t}),this.maybeBindHint(t)}clearInbox(){this.inbox&&(this.inbox=null,this.h.post({type:"inbox",state:""}))}maybeBindHint(t){if(t.state!=="listening"||t.bound_workspace)return;let e="execai.inboxBindHintShown";if(this.h.memo.get(e,!1))return;this.h.memo.set(e,!0);let n=this.h.l10n.t("Bind a project\u2026");this.h.info(this.h.l10n.t("Bind a project to run tasks from the web."),n).then(s=>{s===n&&this.bindFlow()})}gotWorkspaces(t){let e=this.wsWaiters;this.wsWaiters=[];for(let n of e)n(t)}awaitWorkspaces(t){return new Promise(e=>{let n=o=>{clearTimeout(s),e(o)},s=setTimeout(()=>{this.wsWaiters=this.wsWaiters.filter(o=>o!==n),e(null)},t);this.wsWaiters.push(n)})}async bindFlow(){let t=this.h.l10n,e=this.agent();if(!e?.alive){this.h.startAgent(),this.h.post({type:"notice",text:t.t("The agent is starting \u2014 repeat the action in a moment.")});return}let n=this.awaitWorkspaces(1e4);e.sendCommand("list_workspaces");let s=await n;if(!s){this.h.warn(t.t("The agent did not send the project list \u2014 try again in a moment."));return}if(!s.length){let l=t.t("Open execai.ru");this.h.info(t.t("Your ExecAI account has no projects yet \u2014 create one on the site, then bind it here."),l).then(h=>{h===l&&this.h.openExternal("https://execai.ru")});return}let o=this.inbox?.bound_workspace?.id,r=await this.h.pick(s.map(l=>({label:(l.id===o?"$(check) ":"")+l.name,description:l.id===o?t.t("bound"):void 0,id:l.id})),{title:t.t("Bind this folder to a project"),placeHolder:t.t("Tasks from the web for this project will run in this folder"),ignoreFocusOut:!0});!r||r.id===o||this.agent()?.sendCommand("bind",r.id,{workspace_id:r.id})}fromAgent(t){if(gt(t)&&this.machineKnown!==!0){this.machineRefused();return}if(t.type==="machine_state"){let r=ft(t);r&&this.setMachine(r);return}let e=ut(t);e&&this.setInbox(e);let n=dt(t);if(n&&this.gotWorkspaces(n),t.type==="inbox"||t.type==="workspaces")return;if(t.type==="agents"||t.type==="agent_loaded"){t.type==="agents"&&(this.fleetSeen=!0),this.h.post(t);return}if(t.type==="chats"){let r=!1;for(let l of t.chats||[])this.chatLabels.set(l.id,l.label||""),F(l)&&!this.flag(l.id).web&&(this.flag(l.id).web=!0,r=!0);if(r&&this.pushFlags(),this.h.sharedStream){let l=(t.chats||[]).map(d=>({...d,active:!!this.activeChat&&d.id===this.activeChat})),h=(t.chats||[]).find(d=>d.active);this.activeChat===null&&!this.resumePending&&!this.adopted&&h&&(this.adopted=!0,this.agent()?.sendCommand("load_chat",h.id)),this.h.post({...t,chats:l});return}}if(this.resumePending&&!t.chat&&(t.type==="notice"||t.type==="error")&&(this.resumePending=!1),t.chat){if((t.type==="chat_loaded"||t.type==="chat_reset")&&this.takesSwitch(t)){this.activeChat=t.chat;let r=this.flag(t.chat);r.unseen=!1,r.asking=!1,this.pushFlags()}if(this.noteFlags(t),this.noteWebTask(t),t.chat!==this.activeChat){this.backgroundEvent(t);return}}let s=this.h.l10n,o=this.agent();switch(t.type){case"ready":{let r=this.h.keepChatOnReady?this.activeChat:null;this.activeChat=null,this.adopted=!1,this.flags.clear(),this.statusMain=`ExecAI: ${t.model??"?"} \xB7 ${t.source??""}`,this.statusTurn=!1,this.paintStatus(),o?.sendCommand("state"),r?o?.sendCommand("load_chat",r):this.h.resumeLastChat()&&o?.sendCommand("resume_last"),this.resetMachine(),this.requestMachine(),this.fleetSeen&&o?.sendCommand("list_agents"),(t.protocol??0)>1&&this.h.post({type:"notice",text:s.t("This execai is newer than the extension \u2014 update the extension, some events may not render.")});break}case"turn_start":this.statusTurn=!0,this.paintStatus();break;case"done":this.statusTurn=!1,this.paintStatus();break;case"ask":case"ask_user":this.h.reveal();break;case"login_start":{let r=t.text||"",l=s.t("Copy link");this.h.info(s.t("Confirm the sign-in: code {0}",t.id??""),s.t("Open in browser"),l).then(h=>{h===l?this.h.copy(r):h&&r&&this.h.openExternal(r)}),r&&this.h.openExternal(r);break}case"login_done":this.h.info(s.t("ExecAI: signed in as {0}",t.text||""));break;case"state":this.lastState=t,this.statusMain=`ExecAI: ${t.model??"?"} \xB7 ${t.source??""}`,this.paintStatus();break}this.h.post(t)}flag(t){let e=this.flags.get(t);return e||(e={},this.flags.set(t,e)),e}pushFlags(){let t={};for(let[e,n]of this.flags)t[e]=n;this.h.post({type:"chat_flags",flags:t})}noteFlags(t){if(!t.chat)return;let e=this.flag(t.chat),n=!0;switch(t.type){case"turn_start":e.busy=!0,e.asking=!1,F(t)&&(e.web=!0);break;case"done":e.busy=!1,e.asking=!1,t.chat!==this.activeChat&&(e.unseen=!0);break;case"ask":case"ask_user":e.asking=!0;break;case"ask_resolved":e.asking=!1;break;case"chat_meta":F(t)?e.web=!0:n=!1;break;case"wakeup":e.wake=t.at||"";break;case"wakeup_cancelled":e.wake="";break;case"chat_loaded":e.busy=!!t.busy,e.wake=t.at||"",F(t)&&(e.web=!0);break;default:n=!1}n&&this.pushFlags()}chatName(t){let e=(this.chatLabels.get(t)||"").trim()||this.h.l10n.t("untitled chat");return this.flags.get(t)?.web?"\u{1F310} "+e:e}noteWebTask(t){let e=t.chat;!e||this.webToasted.has(e)||(t.type==="turn_start"&&F(t)?this.webPending.has(e)||(this.webPending.add(e),this.agent()?.sendCommand("list_chats")):t.type==="auto_user"&&(F(t)||this.webPending.has(e))?(this.webPending.delete(e),this.webToasted.add(e),this.webTaskToast(e,t.text||"")):t.type==="done"&&this.webPending.delete(e))}webTaskToast(t,e){let n=this.h.l10n,s=n.t("Open");this.h.info(n.t("A task came in from the web: {0}",pt(e)||this.chatName(t)),s).then(o=>{o===s&&(this.h.reveal(),t!==this.activeChat&&this.agent()?.sendCommand("load_chat",t))})}backgroundEvent(t){let e=this.h.l10n,n=e.t("Open"),s=o=>{this.h.info(o,n).then(r=>{r!==n||!t.chat||(this.h.reveal(),this.agent()?.sendCommand("load_chat",t.chat))})};switch(t.type){case"done":if(t.text==="stopped")break;s(e.t("Chat \xAB{0}\xBB finished its turn.",this.chatName(t.chat||"")));break;case"ask":case"ask_user":t.agent&&(t.agent.title||t.agent.id)?s(e.t("Subagent \xAB{0}\xBB in chat \xAB{1}\xBB is waiting for your answer.",t.agent.title||t.agent.id,this.chatName(t.chat||""))):s(e.t("Chat \xAB{0}\xBB is waiting for your answer.",this.chatName(t.chat||"")));break;case"error":s(e.t("Chat \xAB{0}\xBB: {1}",this.chatName(t.chat||""),t.text||""));break}}fromPanel(t){let e=this.h.l10n;switch(t.type){case"ui_ready":{this.h.uiReady();let n=this.h.memo.get("execai.tabs","");n&&this.h.post({type:"tabs_state",text:n}),this.h.post({type:"start_prefs",dismissed:this.globalMemo().get(X,!1)});break}case"start_dismiss":this.globalMemo().set(X,!0),this.h.post({type:"start_prefs",dismissed:!0});break;case"start_reopen":this.showStart();break;case"machine_refresh":this.requestMachine();break;case"update_agent":this.h.updateAgent?.();break;case"send":{this.agent()?.alive||this.h.startAgent();let n=this.h.editorContext()??{};t.files?.length&&(n.files=t.files),this.agent()?.sendUser(t.text||"",n,this.activeChat??void 0),n.path&&this.h.post({type:"context_attached",text:n.selection?e.t("{0} + selection (active file)",n.path):e.t("{0} (active file)",n.path)});break}case"pick_files":this.h.pickFiles();break;case"pick_workspace":this.bindFlow();break;case"tabs_state":this.h.memo.set("execai.tabs",t.text||"");break;case"copy_text":this.h.copy(t.text||"");break;case"attach_paths":this.h.attachPaths(t.paths||[]);break;case"paste_blob":this.h.pasteBlob(t.name||"clipboard.bin",t.dataURL||"");break;case"agent_command":{let n=this.agent();if(!n?.alive){this.h.hasFolder()?(this.h.startAgent(),this.h.post({type:"notice",text:e.t("The agent is starting \u2014 repeat the action in a moment.")})):this.h.post({type:"error",text:e.t("Open a project folder \u2014 the agent needs a working directory.")});break}if(t.name==="connect"){this.connectFlow(t.value||"");break}if(t.name==="set_max_iterations"&&!t.value){this.maxIterFlow();break}if(t.name==="set_subagent_iterations"&&!t.value){this.subagentIterFlow();break}if(t.name==="cancel_wakeup"||t.name==="wake_now"){n.sendCommand(t.name,t.value||this.activeChat||"");break}n.sendCommand(t.name||"",t.value);break}case"new_chat_ui":this.newChat();break;case"open_terminal":this.h.openTerminal(le(t.text));break;case"check_updates":this.h.checkUpdates();break;case"answer":this.agent()?.sendAnswer(t.id||"",t.value||"");break;case"stop":this.agent()?.stop(this.activeChat??void 0);break;case"new_chat":this.agent()?.newChat();break;case"open_file":t.path&&this.h.openFile(t.path,t.line);break;case"open_external":{let n=t.text||"";/^(https?:|mailto:)/i.test(n)&&this.h.openExternal(n);break}case"restart":this.h.startAgent();break}}newChat(){this.agent()?.newChat(),this.h.post({type:"chat_reset"})}globalMemo(){return this.h.globalMemo||this.h.memo}showStart(){this.globalMemo().set(X,!1),this.h.post({type:"start_show"})}toggleMachine(){this.h.post({type:"machine_toggle"}),this.requestMachine()}requestMachine(){let t=this.agent();!t?.alive||this.machineKnown===!1||(t.sendCommand("machine_state"),!(this.machineKnown===!0||this.machineTimer)&&(this.machineTimer=setTimeout(()=>{this.machineTimer=null,this.machineKnown===null&&this.machineRefused()},ae),this.machineTimer.unref?.()))}clearMachine(){let t=this.machine!==null||this.machineKnown!==null;this.resetMachine(),t&&this.h.post({type:"machine_clear"})}resetMachine(){this.machineTimer&&clearTimeout(this.machineTimer),this.machineTimer=null,this.machine=null,this.machineKnown=null}machineRefused(){this.machineTimer&&clearTimeout(this.machineTimer),this.machineTimer=null,this.machineKnown=!1,this.machine||this.h.post({type:"machine_state",unsupported:!0})}setMachine(t){this.machineTimer&&clearTimeout(this.machineTimer),this.machineTimer=null,this.machineKnown=!0,this.machine=t,this.qrCache.url!==t.phone_url&&(this.qrCache={url:t.phone_url,pic:t.phone_url?Pt(t.phone_url):null}),this.h.post({type:"machine_state",...t,phone_qr:this.qrCache.pic})}async connectFlow(t){if(t==="custom"){await this.customProviderFlow();return}let e=this.h.l10n,n=t==="claude-cli"||t==="codex-cli",s;!n&&(s=await this.h.input({title:e.t("Key for {0}",t),prompt:t==="ollama"?e.t("An ollama.com key for the cloud; leave empty for a local Ollama"):e.t("Provider key \u2014 stored on this machine only"),password:!0,ignoreFocusOut:!0}),s===void 0&&t!=="ollama")||this.agent()?.sendCommand("connect",t,{key:s||""})}async customProviderFlow(){let t=this.h.l10n,e=h=>t.t("Custom provider ({0}/5)",h),n=await this.h.input({title:e(1),prompt:t.t("Name \u2014 it becomes the source id, e.g. LM Studio, vLLM, deepseek"),placeHolder:"LM Studio",ignoreFocusOut:!0,validateInput:h=>/[a-z0-9]/i.test(h)?null:t.t("use latin letters or digits")});if(n===void 0)return;let s=await this.h.pick([{label:t.t("OpenAI-compatible"),description:"\u2026/chat/completions",detail:"LM Studio, vLLM, llama.cpp, LiteLLM, DeepSeek, Groq, Together, Mistral\u2026",value:"openai"},{label:t.t("Anthropic-compatible"),description:"\u2026/v1/messages",detail:t.t("LiteLLM, Claude gateways, MiniMax, DeepSeek\u2026"),value:"anthropic"}],{title:e(2),placeHolder:t.t("Interface type"),ignoreFocusOut:!0});if(!s)return;let o=await this.h.input({title:e(3),prompt:s.value==="anthropic"?t.t("Server address without /v1/messages, e.g. https://llm.corp.local"):t.t("Server address, e.g. http://localhost:1234/v1 or https://api.deepseek.com"),placeHolder:s.value==="anthropic"?"https://llm.corp.local":"http://localhost:1234/v1",ignoreFocusOut:!0,validateInput:h=>{let d=h.trim();return d?/^(https?:\/\/)?[^\s/]+(\/\S*)?$/i.test(d)?null:t.t("not an http(s) address"):t.t("an address is required")}});if(o===void 0)return;let r=await this.h.input({title:e(4),prompt:t.t("API key \u2014 leave empty if the server needs none. Stored on this machine only"),password:!0,ignoreFocusOut:!0});if(r===void 0)return;let l=await this.h.input({title:e(5),prompt:t.t("Model IDs separated by commas \u2014 leave empty to take the server's own list"),placeHolder:"qwen3-coder, llama-4",ignoreFocusOut:!0});l!==void 0&&this.agent()?.sendCommand("connect","custom",{label:n.trim(),api:s.value,base_url:o.trim(),key:r.trim(),models:l.split(",").map(h=>h.trim()).filter(Boolean)})}async maxIterFlow(){let t=this.h.l10n,e=this.lastState?.max_iter??50,n=await this.h.input({title:t.t("Tool iteration limit per turn"),value:String(e),ignoreFocusOut:!0,validateInput:s=>/^[1-9]\d*$/.test(s.trim())?null:t.t("a positive number is required")});n&&this.agent()?.sendCommand("set_max_iterations",n.trim())}async subagentIterFlow(){let t=this.h.l10n,e=this.lastState?.subagent_iter??50,n=await this.h.input({title:t.t("Step limit of a new subagent"),prompt:t.t("From 1 to 100. A running subagent can be given more steps in the Agents block."),value:String(e),ignoreFocusOut:!0,validateInput:s=>{let o=/^\d+$/.test(s.trim())?Number(s.trim()):0;return o>=1&&o<=100?null:t.t("a number from 1 to 100 is required")}});n&&this.agent()?.sendCommand("set_subagent_iterations",String(Number(n.trim())))}};var ce="execai-host",Tt=/\.(png|jpe?g|gif|webp)$/i,he=3*1024*1024,ue=25*1024*1024;function w(i,t,e){let n=document.createElement(i);return t&&(n.className=t),e!==void 0&&(n.textContent=e),n}function It(i){return i.replace(/\$\(check\)\s*/g,"\u2713 ").replace(/\$\(globe\)\s*/g,"\u{1F310} ").replace(/\$\([\w-]+\)\s*/g,"")}function St(i){return i.replace(/[\\/]+$/,"").split(/[\\/]/).pop()||i}function de(){let i=window.execaiPage||{},t=i.l10n||{},e=i.config&&typeof i.config=="object"?i.config:{},n={t:(a,...c)=>(t[a]??a).replace(/\{(\d+)\}/g,(u,f)=>+f<c.length?String(c[+f]):u)},s=document.getElementById("hdr"),o=document.getElementById("toasts"),r=document.getElementById("dlg");s.innerHTML="";let l=w("span","hdr-status","ExecAI"),h=w("span","hdr-conn",""),d=w("span","hdr-where",[e.cwd,e.version?"execai "+e.version:""].filter(Boolean).join(" \xB7 "));d.title=e.cwd||"",s.appendChild(l),s.appendChild(h),s.appendChild(d);let x=w("button","hdr-machine","\u{1F5A5}");x.title=n.t("My machine"),x.onclick=()=>R.toggleMachine(),s.appendChild(x),document.title=e.cwd?St(e.cwd)+" \u2014 ExecAI":"ExecAI";let b=()=>typeof Notification<"u";if(b()&&Notification.permission==="default"){let a=w("button","hdr-bell","\u{1F514}");a.title=n.t("Notify me when a chat finishes or asks while this tab is in the background"),a.onclick=()=>{try{Promise.resolve(Notification.requestPermission()).then(()=>a.remove(),()=>a.remove())}catch{a.remove()}},s.appendChild(a)}let m=(a,c)=>{try{if(!b()||Notification.permission!=="granted"||!document.hidden)return;let u=new Notification("ExecAI",{body:a,tag:"execai"});u.onclick=()=>{try{window.focus()}catch{}u.close(),c?.()}}catch{}},E=(a,c,u)=>new Promise(f=>{let p=w("div","toast"+(u?" warn":""));p.appendChild(w("span","",a));let v=!1,k=H=>{v||(v=!0,p.remove(),f(H))};p._finish=k;for(let H of c){let ot=w("button","",H);ot.onclick=()=>k(H),p.appendChild(ot)}let A=w("i","","\xD7");for(A.title=n.t("Close"),A.onclick=()=>k(void 0),p.appendChild(A),o.appendChild(p);o.children.length>3;)o.children[0]._finish?.(void 0);setTimeout(()=>k(void 0),c.length?6e4:12e3),m(a,c.length?()=>k(c[0]):void 0)}),y=null,C=(a,c)=>(y?.(),new Promise(u=>{r.innerHTML="";let f=w("div","dlg-box");f.setAttribute("role","dialog"),a&&f.appendChild(w("div","dlg-title",a));let p=!1,v=k=>{p||(p=!0,y=null,r.classList.remove("open"),r.innerHTML="",u(k))};y=()=>v(void 0),r.onclick=k=>{k.target===r&&v(void 0)},c(f,v),r.appendChild(f),r.classList.add("open")}));document.addEventListener("keydown",a=>{a.key==="Escape"&&y&&y()});let P=a=>{let c=w("div","dlg-btns");for(let[u,f,p]of a){let v=w("button",p?"primary":"",u);v.onclick=f,c.appendChild(v)}return c},Ft=(a,c)=>C(c.title,(u,f)=>{c.placeHolder&&u.appendChild(w("div","dlg-prompt",c.placeHolder));let p=w("div","dlg-list");a.forEach((v,k)=>{let A=w("button","dlg-item");A.setAttribute("data-i",String(k)),A.appendChild(w("b","",It(v.label))),v.description&&A.appendChild(w("small","",v.description)),v.detail&&A.appendChild(w("div","dlg-detail",v.detail)),A.onclick=()=>f(v),p.appendChild(A)}),u.appendChild(p),u.appendChild(P([[n.t("Cancel"),()=>f(void 0)]]))}),Nt=a=>C(a.title,(c,u)=>{a.prompt&&c.appendChild(w("div","dlg-prompt",a.prompt));let f=w("input","dlg-input");f.type=a.password?"password":"text",f.value=a.value||"",f.placeholder=a.placeHolder||"",f.autocomplete="off",f.spellcheck=!1;let p=w("div","dlg-err"),v=()=>{let k=f.value,A=a.validateInput?.(k);if(A){p.textContent=A;return}u(k)};f.onkeydown=k=>{k.key==="Enter"&&(k.preventDefault(),v())},f.oninput=()=>{p.textContent=""},c.appendChild(f),c.appendChild(p),c.appendChild(P([[n.t("OK"),v,!0],[n.t("Cancel"),()=>u(void 0)]])),setTimeout(()=>f.focus(),0)}),Z=Promise.resolve(),Q=a=>{R.fromAgent({type:"error",text:a===401||a===403?n.t("This page is no longer signed in to execai ui \u2014 open the link it printed in the terminal again."):n.t("execai ui did not take the message ({0}) \u2014 is it still running?",a||n.t("no connection"))})},Ot=mt(a=>{let c=JSON.stringify(a);Z=Z.then(()=>fetch("/in",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:c})).then(u=>{u.ok||Q(u.status)},()=>Q(0))}),S=null,tt=a=>{h.textContent=a},Rt=()=>{S||(S=new EventSource("/events"),S.onopen=()=>tt(""),S.onmessage=a=>{let c;try{c=JSON.parse(a.data)}catch{return}c&&typeof c.type=="string"&&R.fromAgent(c)},S.onerror=()=>{tt(S&&S.readyState===2?n.t("disconnected \u2014 run execai ui again"):n.t("reconnecting\u2026"))})},j=new Map,et=new Map,z=a=>{E(a,[],!0)},nt=a=>z(n.t("{0} is larger than 25 MB \u2014 not attached.",a)),it=async(a,c)=>{if(a.size>ue)return nt(c),null;try{let u=new FormData;u.append("file",a,c);let f=await fetch(e.upload||"/upload",{method:"POST",body:u,credentials:"same-origin"});if(f.status===413)return nt(c),null;if(!f.ok)throw new Error(String(f.status));let p=await f.json();if(p&&typeof p.path=="string"&&p.path)return et.set(p.path,typeof p.name=="string"&&p.name?p.name:c),p.path;throw new Error("no path")}catch{return z(n.t("Could not upload {0}.",c)),null}},Lt=a=>new Promise(c=>{try{let u=new FileReader;u.onload=()=>c(typeof u.result=="string"?u.result:null),u.onerror=()=>c(null),u.readAsDataURL(a)}catch{c(null)}}),Bt=async a=>{let c=[];for(let u of a){let f=await it(u,u.name);if(f){if(Tt.test(u.name)&&u.size<=he){let p=await Lt(u);p&&j.set(f,p)}c.push(f)}}c.length&&R.fromPanel({type:"attach_paths",paths:c})},M=null,st=a=>"execai:"+(e.cwd||"")+":"+a,K={l10n:n,agent:()=>Ot,startAgent:()=>{},hasFolder:()=>!0,post:a=>{window.dispatchEvent(new MessageEvent("message",{data:a,origin:ce}))},uiReady:Rt,status:(a,c)=>{l.textContent=It(a),l.title=c||""},info:(a,...c)=>E(a,c,!1),warn:z,reveal:()=>{try{window.focus()}catch{}m(n.t("The agent is waiting for your answer."))},openExternal:a=>{window.open(a,"_blank","noopener,noreferrer")},copy:a=>{let c=()=>z(n.t("Could not copy to the clipboard."));try{navigator.clipboard.writeText(a).then(void 0,c)}catch{c()}},memo:{get:(a,c)=>{try{let u=localStorage.getItem(st(a));return u===null?c:JSON.parse(u)}catch{return c}},set:(a,c)=>{try{localStorage.setItem(st(a),JSON.stringify(c))}catch{}}},globalMemo:{get:(a,c)=>{try{let u=localStorage.getItem("execai:global:"+a);return u===null?c:JSON.parse(u)}catch{return c}},set:(a,c)=>{try{localStorage.setItem("execai:global:"+a,JSON.stringify(c))}catch{}}},pick:Ft,input:Nt,resumeLastChat:()=>!0,editorContext:()=>{},pickFiles:()=>{M||(M=w("input"),M.type="file",M.multiple=!0,M.style.display="none",M.onchange=()=>{let a=Array.from(M?.files||[]);M&&(M.value=""),Bt(a)},document.body.appendChild(M)),M.click?.()},attachPaths:a=>{let c=a.map(u=>({path:u,label:et.get(u)||St(u),thumb:j.get(u)}));c.length&&K.post({type:"files_attached",items:c})},pasteBlob:(a,c)=>{let u=/^data:([^;,]*)(;base64)?,(.*)$/s.exec(c);if(!u)return;let f;try{let p=u[2]?atob(u[3]):decodeURIComponent(u[3]),v=new Uint8Array(p.length);for(let k=0;k<p.length;k++)v[k]=p.charCodeAt(k);f=new Blob([v],{type:u[1]||"application/octet-stream"})}catch{return}it(f,a).then(p=>{p&&(Tt.test(a)&&j.set(p,c),K.attachPaths([p]))})},openFile:()=>{},openTerminal:()=>{},checkUpdates:()=>{},keepChatOnReady:!0,sharedStream:!0},R=new $(K);window.execaiHost={postMessage:a=>{Promise.resolve().then(()=>R.fromPanel(a))}}}de();})();
+
+</script>
+
+<script nonce="{{NONCE}}">
+const T = {"empty":"Describe a task — the agent works right inside your project folder.\nThe active file and selection are attached automatically (execai.attachContext setting).\nFiles: hold Shift to drag them here, paste with Ctrl+V, or use the + button.","statusTitle":"Model and source — click to change","placeholder":"What should be done in this project?","attachTitle":"Attach files","cmdTitle":"execai commands","histTitle":"Chat history","hintEnter":"Enter — send","sendTitle":"Send","stopTitle":"Stop the turn","secs":"s","notSignedIn":"not signed in","mSecurity":"Security level","mResume":"Continue the last chat","mModel":"Model","mSource":"Source","mConnect":"Connect a source","mEffort":"Reasoning level","mMaxIter":"Iteration limit","mSubagentIter":"Subagent steps","mLogout":"Sign out of ExecAI","mLogin":"Sign in to ExecAI","loginNone":"not signed in","mNewChat":"New chat","mRestart":"Restart the agent","mTerminal":"Open execai in a terminal","mCheckUpdates":"Check for Studio updates","tabBusy":"the agent is working here","tabUnseen":"finished — not read yet","tabAsk":"waiting for your answer","tabWake":"will wake up at ","wakeNotice":"will wake up at ","wakeNow":"Now","wakeCancel":"Cancel","wakeCancelled":"Wake-up cancelled.","autoTurn":"woke up: ","queued":"Queued — other chats are still answering.","copy":"copy","copied":"copied ✓","copyMsg":"copy the answer","newTabTitle":"New chat","closeTab":"Close the tab (the chat stays in history)","untitledChat":"New chat","back":"← back","listEmpty":"the list has not arrived yet — reopen the menu","histHead":"History of this project","histEmpty":"nothing yet — this is the first chat","askPerm":"The agent asks for permission — ","askQuestion":"The agent is asking","dragSeen":"⤵ drag detected, types: ","dragNone":"none","dropUnknown":"Drop not recognized. Types: ","agentReady":"Agent ready: ","thinkingClosed":"reasoning ▸","thinkingOpen":"reasoning ▾","newChatNotice":"New chat.","chatRestored":"Chat restored — carry on.","loginConfirm":"Confirm the sign-in in a browser","loginCode":"  ·  code ","loginCopy":"copy the link","loginCopied":"copied ✓","signedIn":"Signed in: ","agentExited":"The agent exited.","restartBtn":"Restart","inboxListening":"Tasks from the web: accepted in this window","inboxOtherServe":"Tasks from the web are accepted by the background execai serve","inboxTake":"Accept here","inboxOtherIde":"Tasks from the web are accepted by another window: ","inboxNoPlan":"Running tasks from the web is available on the Work and Max plans","inboxPlans":"Choose a plan","inboxDisabled":"Accepting tasks from the web is turned off","inboxNotLoggedIn":"Sign in to accept tasks from the web","mProject":"Project","projectNone":"not bound","mUnbind":"Unbind the project","tabWeb":"a task from the web","webTurn":"From the web: ","askResolved":"Answered on the web — the question is closed.","askCancelled":"The question was withdrawn.","agentsHead":"Agents","agentsRunning":"{n} running","agentsDone":"{n} done","agentsFailed":"{n} failed","agentsToggle":"Subagents — click to fold or unfold","agentStop":"Stop","agentStopTitle":"Stop this subagent","agentMore":"+25","agentMoreTitle":"Give this agent 25 more steps","agentContinue":"Continue (+25)","agentContinueTitle":"The agent hit its step limit — continue from where it stopped for 25 more steps","agentOpenTitle":"Click to open what it has done (read-only)","agSteps":"step {i}/{m} · {n} left","agExhausted":"hit the step limit","agQueued":"queued","agRunning":"working","agWaiting":"waiting for your answer","agDone":"done","agFailed":"failed","agCancelled":"stopped","agTokens":"tokens","tabAgents":"subagents at work","agentTab":"a subagent — read-only","agentReadOnly":"Read-only: what the subagent has done so far.","agentBack":"Back to the chat","askFromAgent":"Subagent: ","mStart":"Getting started","mMachine":"My machine","startTitle":"Getting started","startLead":"Five steps, and the agent is with you everywhere: in the editor, in the web chat and on your phone.","startClose":"Close — it comes back from the menu: Getting started","stDone":"done","stTodo":"not yet","stLogin":"Sign in to ExecAI","stLoginWhy":"The account ties together your machines, the web chat and the phone.","stLoginBtn":"Sign in","stModels":"Connect models","stModelsWhy":"Your own provider keys or an ExecAI plan — the agent works the same with either.","stModelsBtn":"Connect a source","stSync":"Turn on sync","stSyncWhy":"The same keys, settings and memory on every machine of your account.","stSyncBtn":"Turn on in a terminal","stSyncBtnCopy":"Copy the command","stSyncCmd":"In a terminal: ","syncGoes":"Goes to your account: settings and provider keys (encrypted with your sync password), personal memory, projects.","syncStays":"Stays on this machine: the server address.","syncPassword":"The sync password cannot be recovered — write it down.","stProject":"Bind this folder to a project","stProjectWhy":"The folder becomes a project in the web chat with the same memory; tasks from the web and the phone run here.","stProjectBtn":"Bind…","stProjectBound":"Bound to: ","stProjectNone":"Not bound yet.","stPhone":"Call the agent from your phone","stPhoneWhy":"Point the camera at the code: the web chat opens with this machine selected, whatever models it runs.","stPhoneBtn":"Show the QR code","stPhoneHide":"Hide the code","stPhoneNoLink":"The agent has not sent the link yet.","qrOpen":"open","srcAlive":"answered","srcDead":"no answer","srcNone":"Nothing connected yet.","agoNow":"just now","agoMin":"min ago","agoHour":"h ago","agoDay":"d ago","machineTitle":"My machine","machineLoading":"Asking the agent…","machineOld":"This agent does not describe its machine yet — update the agent.","machineUpdate":"Update the agent","machineRefresh":"Refresh","machineClose":"Close","machineQr":"QR for the phone","rowMachine":"Machine","rowAgent":"Agent","rowAccount":"Account","rowModels":"Models","rowSync":"Sync","rowReach":"Reach","accNone":"not signed in","planLabel":"plan ","planNone":"no plan","planStart":"Start","planWork":"Work","planMax":"Max","syncOn":"on","syncOff":"off","syncLast":"last sent","syncHasConfig":"settings and provider keys, encrypted","syncMemory":"personal memory, files","syncProjects":"projects","modeAll":"syncs all projects","modeSelected":"syncs the selected projects","modeNone":"syncs no projects — settings and personal memory only","reachListening":"accepts tasks from the web","reachNoListener":"nobody accepts tasks from the web on this machine","reachWeb":"can be called from the web chat and the phone","reachNoWeb":"not reachable from the web chat yet"};
+// The markdown renderer: the very source the tests cover (src/markdown.ts).
+//
+// Bound to a name explicitly. The release build is minified, so the function
+// arrives here renamed to a single letter — a bare declaration left the panel
+// calling a renderMarkdown() that did not exist, and answers fell back to raw
+// text. Unit tests run an unminified bundle and could not see it; the live
+// editor run did.
+const renderMarkdown = function _(s){if(!s)return"";let n=a=>a.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"),t=a=>{let l=[],e=a.replace(/`([^`\n]+)`/g,(p,d)=>(l.push(d),"\uE000"+(l.length-1)+"\uE001"));return e=e.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,(p,d,g)=>/^(https?:|mailto:)/i.test(g)?'<a href="'+g+'">'+d+"</a>":p),e=e.replace(/(^|[\s(])(https?:\/\/[^\s<>"')\]]+)/g,(p,d,g)=>{let m=(g.match(/[.,;:!?)\]]+$/)||[""])[0],u=g.slice(0,g.length-m.length);return d+'<a href="'+u+'">'+u+"</a>"+m}),e=e.replace(/(^|[\s(«"'`])((?:[\w.@-]+\/)+[\w.@-]+\.[a-z]{1,5}|[\w.@-]+\.[a-z]{1,5}(?=:\d))(:(\d+))?(?::(\d+))?/gi,(p,d,g,m,u)=>{if(/^https?:/i.test(g)||g.indexOf("\uE000")>=0)return p;let v=' data-file="'+g+'"'+(u?' data-line="'+u+'"':""),w=g+(u?":"+u:"");return d+'<a href="#"'+v+">"+w+"</a>"}),e=e.replace(/(^|[^*])\*\*([^*\n]+)\*\*/g,"$1<strong>$2</strong>"),e=e.replace(/(^|[^*\w])\*([^*\n]+)\*/g,"$1<em>$2</em>"),e=e.replace(/(^|[^_\w])_([^_\n]+)_/g,"$1<em>$2</em>"),e=e.replace(/~~([^~\n]+)~~/g,"<del>$1</del>"),e.replace(/\uE000(\d+)\uE001/g,(p,d)=>"<code>"+l[Number(d)]+"</code>")},i=n(s).split(`
+`),c=[],o=0,f=[],h=()=>{f.length&&(c.push("<p>"+t(f.join(`
+`))+"</p>"),f=[])},r=a=>/^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(a),b=a=>a.replace(/^\s*\|/,"").replace(/\|\s*$/,"").split("|").map(l=>l.trim());for(;o<i.length;){let a=i[o],l=/^\s*(```|~~~)(.*)$/.exec(a);if(l){h();let d=l[1],g=l[2].trim().replace(/[^\w+-]/g,""),m=[];for(o++;o<i.length&&!new RegExp("^\\s*"+d).test(i[o]);)m.push(i[o]),o++;o++,c.push('<pre class="code"'+(g?' data-lang="'+g+'"':"")+"><code>"+m.join(`
+`)+"</code></pre>");continue}if(a.includes("|")&&o+1<i.length&&r(i[o+1])){h();let d=b(a),g=b(i[o+1]).map(v=>v.startsWith(":")&&v.endsWith(":")?"center":v.endsWith(":")?"right":"left");o+=2;let m=[];for(;o<i.length&&i[o].includes("|")&&i[o].trim()!=="";)m.push(b(i[o])),o++;let u='<div class="tablewrap"><table><thead><tr>';d.forEach((v,w)=>{u+='<th style="text-align:'+(g[w]||"left")+'">'+t(v)+"</th>"}),u+="</tr></thead><tbody>";for(let v of m){u+="<tr>";for(let w=0;w<d.length;w++)u+='<td style="text-align:'+(g[w]||"left")+'">'+t(v[w]===void 0?"":v[w])+"</td>";u+="</tr>"}c.push(u+"</tbody></table></div>");continue}let e=/^\s*(#{1,6})\s+(.*)$/.exec(a);if(e){h();let d=Math.min(e[1].length+2,6);c.push("<h"+d+">"+t(e[2])+"</h"+d+">"),o++;continue}if(/^\s*([-*_])\s*(\1\s*){2,}$/.test(a)){h(),c.push("<hr>"),o++;continue}if(/^\s*&gt;\s?/.test(a)){h();let d=[];for(;o<i.length&&/^\s*&gt;\s?/.test(i[o]);)d.push(i[o].replace(/^\s*&gt;\s?/,"")),o++;c.push("<blockquote>"+t(d.join(`
+`))+"</blockquote>");continue}let p=/^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(a);if(p){h();let d=/\d/.test(p[2]),g=d?"<ol>":"<ul>",m=0;for(;o<i.length;){let u=/^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(i[o]);if(!u)break;let v=Math.floor(u[1].length/2);for(;v>m;)g+=d?"<ol>":"<ul>",m++;for(;v<m;)g+=d?"</ol>":"</ul>",m--;g+="<li>"+t(u[3])+"</li>",o++}for(;m-- >0;)g+=d?"</ol>":"</ul>";c.push(g+(d?"</ol>":"</ul>"));continue}if(a.trim()===""){h(),o++;continue}f.push(a),o++}return h(),c.join("")};
+// The inbox section of the menu (src/panelLogic.ts) — bound to a name for the
+// same reason as renderMarkdown.
+const inboxMenuEntries = function T(s,n,t){if(!s||!s.state)return[];let i=o=>({type:"agent_command",name:o}),c=[];switch(s.state){case"listening":c.push({key:"inbox",info:!0,label:n.inboxListening});break;case"other_serve":c.push({key:"inbox",info:!0,label:n.inboxOtherServe+(s.owner_pid?" (pid "+s.owner_pid+")":"")}),c.push({key:"inbox_take",label:n.inboxTake,msg:i("inbox_take")});break;case"other_ide":c.push({key:"inbox",info:!0,label:n.inboxOtherIde+(s.owner_cwd||"?")});break;case"no_plan":c.push({key:"inbox",info:!0,label:n.inboxNoPlan}),c.push({key:"inbox_plans",label:n.inboxPlans,extra:t.replace(/^https?:\/\//,"").replace(/[?#].*$/,""),msg:{type:"open_external",text:t}});break;case"disabled":c.push({key:"inbox",info:!0,label:n.inboxDisabled});break;case"not_logged_in":c.push({key:"inbox",info:!0,label:n.inboxNotLoggedIn,msg:i("login")});break;default:return[]}if(s.state!=="not_logged_in"&&s.state!=="no_plan"){let o=s.bound_workspace;c.push({key:"project",label:n.mProject+": "+(o?o.name:n.projectNone),msg:{type:"pick_workspace"}}),o&&c.push({key:"unbind",label:n.mUnbind,msg:i("unbind")})}return c};
+// The subagents block (src/panelLogic.ts), bound to a name the same way.
+const fleetView = function S(s,n,t){let i={queued:"\u25F7",running:"\u25B6",waiting:"?",done:"\u2713",failed:"\u2717",cancelled:"\u25A0"},c={queued:t.agQueued,running:t.agRunning,waiting:t.agWaiting,done:t.agDone,failed:t.agFailed,cancelled:t.agCancelled},o=e=>{let p=e?Date.parse(e):NaN;return isNaN(p)?NaN:p},f=e=>{let p=Math.max(0,Math.floor(e)),d=g=>(g<10?"0":"")+g;return p<60?p+(t.secs||"s"):p<3600?Math.floor(p/60)+":"+d(p%60):Math.floor(p/3600)+":"+d(Math.floor(p/60)%60)+":"+d(p%60)},h=e=>e<1e3?String(e):e<1e4?(e/1e3).toFixed(1)+"k":e<1e6?Math.round(e/1e3)+"k":(e/1e6).toFixed(1)+"M",r={rows:[],running:0,done:0,failed:0,perChat:{}},b=(Array.isArray(s)?s:[]).filter(e=>e&&e.id),a=e=>e==="queued"||e==="running"||e==="waiting",l=b.slice().sort((e,p)=>{let d=a(e.state||""),g=a(p.state||"");return d!==g?d?-1:1:d?(o(e.started_at)||0)-(o(p.started_at)||0):(o(p.finished_at||p.updated_at)||0)-(o(e.finished_at||e.updated_at)||0)});for(let e of l){let p=e.state||"",d=a(p);d?(r.running++,e.parent_chat&&(r.perChat[e.parent_chat]=(r.perChat[e.parent_chat]||0)+1)):p==="done"?r.done++:p==="failed"&&r.failed++;let g=!d&&!!e.exhausted,m=-1,u=[];e.max_iter&&d?(m=Math.max(0,e.max_iter-(e.iter||0)),u.push((t.agSteps||"step {i}/{m} \xB7 {n} left").replace("{i}",String(e.iter||0)).replace("{m}",String(e.max_iter)).replace("{n}",String(m)))):e.max_iter?u.push((e.iter||0)+"/"+e.max_iter):e.iter&&u.push(String(e.iter)),g&&u.push(t.agExhausted||"hit the step limit"),e.last_tool&&u.push(e.last_tool);let v=o(e.started_at),w=d?n:o(e.finished_at||e.updated_at);!isNaN(v)&&!isNaN(w)&&u.push(f((w-v)/1e3));let x=[c[p]||p];g&&(x[0]+=" \xB7 "+(t.agExhausted||"hit the step limit"));let C=[e.model,e.source].filter(Boolean).join(" \xB7 ");C&&(x[0]+=" \xB7 "+C),e.prompt_tokens&&(x[0]+=" \xB7 "+h(e.prompt_tokens)+" "+(t.agTokens||"tokens")),e.preview&&x.push(e.preview),e.error&&x.push(e.error),r.rows.push({id:e.id,title:(e.title||"").trim()||e.id,state:p,active:d,icon:i[p]||"\u2022",meta:u.join(" \xB7 "),left:m,low:m>=0&&m<=5,exhausted:g,tip:x.join(`
+`),parent:e.parent_chat||"",updated:e.updated_at||""})}return r};
+// Getting started and the machine card (src/panelLogic.ts), bound the same way.
+const showStart = function M(s){return!s.steps||!s.steps.length?!1:s.forced?!0:s.dismissed||!s.chatEmpty?!1:s.steps.some(n=>!n.done)};
+const startSteps = function B(s,n,t,i){if(!s)return[];let c=h=>{let r=h?Date.parse(h):NaN;if(isNaN(r))return"";let b=Math.max(0,(i-r)/1e3);return b<60?t.agoNow:b<3600?Math.floor(b/60)+" "+t.agoMin:b<86400?Math.floor(b/3600)+" "+t.agoHour:Math.floor(b/86400)+" "+t.agoDay},o=s.machine,f=[];for(let h of s.tutorial||[]){let r={id:h.id,done:!!h.done,title:"",why:"",lines:[],action:"",actionLabel:""},b=(a,l)=>{r.done||(r.action=a,r.actionLabel=l)};switch(h.id){case"login":r.title=t.stLogin,r.why=t.stLoginWhy,o.logged_in&&o.email_masked&&r.lines.push(o.email_masked),b("login",t.stLoginBtn);break;case"models":r.title=t.stModels,r.why=t.stModelsWhy;for(let a of o.sources||[]){let l=c(a.checked_at);r.lines.push((a.alive?"\u2713 ":"\u2717 ")+a.title+" \u2014 "+(a.alive?t.srcAlive:t.srcDead)+(l?", "+l:""))}(o.sources||[]).length||r.lines.push(t.srcNone),b("connect",t.stModelsBtn);break;case"sync":{if(r.title=t.stSync,r.why=t.stSyncWhy,o.sync.enabled){let a=c(o.sync.last_push_at);r.lines.push(t.rowSync+": "+t.syncOn+(a?" \xB7 "+t.syncLast+" "+a:""))}r.lines.push(t.syncGoes,t.syncStays,t.syncPassword),r.done||r.lines.push(t.stSyncCmd+"execai sync on"),b("sync_on",t.stSyncBtn);break}case"project":r.title=t.stProject,r.why=t.stProjectWhy,r.lines.push(n&&n.name?t.stProjectBound+n.name:t.stProjectNone),b("bind",t.stProjectBtn);break;case"phone":r.title=t.stPhone,r.why=t.stPhoneWhy;for(let a of[o.presence.listener_running?"":t.reachNoListener,o.presence.reachable_from_web?t.reachWeb:t.reachNoWeb])a&&r.lines.push(a.charAt(0).toUpperCase()+a.slice(1)+".");s.phone_url?(r.action="qr",r.actionLabel=t.stPhoneBtn):r.lines.push(t.stPhoneNoLink);break;default:continue}f.push(r)}return f};
+const machineRows = function A(s,n,t){let i=a=>{let l=a?Date.parse(a):NaN;if(isNaN(l))return"";let e=Math.max(0,(t-l)/1e3);return e<60?n.agoNow:e<3600?Math.floor(e/60)+" "+n.agoMin:e<86400?Math.floor(e/3600)+" "+n.agoHour:Math.floor(e/86400)+" "+n.agoDay},c=a=>{let l=String(a||"").toLowerCase().replace(/^(day|week|month|year)_/,"");return l==="start"?n.planStart:l==="work"?n.planWork:l==="max"?n.planMax:a},o=s.machine,f=[];f.push({key:"machine",label:n.rowMachine,value:[o.name,o.os].filter(Boolean).join(" \xB7 ")||"?",lines:o.id?["id "+o.id]:[],tone:""}),f.push({key:"agent",label:n.rowAgent,value:o.version||"?",lines:[],tone:""}),f.push(o.logged_in?{key:"account",label:n.rowAccount,value:[o.email_masked||"?",o.plan?n.planLabel+c(o.plan):n.planNone].join(" \xB7 "),lines:[],tone:"ok"}:{key:"account",label:n.rowAccount,value:n.accNone,lines:[],tone:"warn"});let h=o.sources||[];f.push({key:"models",label:n.rowModels,value:h.length?"":n.srcNone,lines:h.map(a=>{let l=i(a.checked_at);return(a.alive?"\u2713 ":"\u2717 ")+a.title+" \u2014 "+(a.alive?n.srcAlive:n.srcDead)+(l?", "+l:"")}),tone:h.length&&h.every(a=>a.alive)?"ok":"warn"});let r=o.sync;if(r.enabled){let a=i(r.last_push_at),l=[];r.config&&l.push(n.syncHasConfig),l.push(n.syncMemory+": "+(r.personal_memory_files||0)),l.push(n.syncProjects+": "+(r.projects||0));let e=r.mode==="all"?n.modeAll:r.mode==="selected"?n.modeSelected:r.mode==="none"?n.modeNone:"";e&&l.push(e),f.push({key:"sync",label:n.rowSync,value:n.syncOn+(a?" \xB7 "+n.syncLast+" "+a:""),lines:l,tone:"ok"})}else f.push({key:"sync",label:n.rowSync,value:n.syncOff,lines:[],tone:""});let b=o.presence;return f.push({key:"reach",label:n.rowReach,value:"",lines:[b.listener_running?n.reachListening:n.reachNoListener,b.reachable_from_web?n.reachWeb:n.reachNoWeb],tone:b.listener_running&&b.reachable_from_web?"ok":"warn"}),f};
+const PAYMENT_URL = "https://chat.execai.ru/settings/payment?utm_source=agent&utm_medium=vscode&utm_campaign=inbox";
+// In a browser (execai ui) the page talks to window.execaiHost, which plays
+// the extension's part (browserHost.ts); what needs an editor is hidden.
+const BROWSER = true;
+const vscode = window.execaiHost;
+const log = document.getElementById('log');
+const inp = document.getElementById('inp');
+const sendBtn = document.getElementById('sendBtn');
+const stopBtn = document.getElementById('stopBtn');
+const chipsBox = document.getElementById('chips');
+
+let curAssistant = null;  // current answer block
+let curThinking = null;   // current reasoning block
+let tools = {};           // id → card elements
+let asks = {};            // ask id → its box, so a question answered elsewhere can be taken back
+let attached = [];        // [{path, label, thumb?}] — "+", drag&drop, paste
+let isStudio = false;     // set by the extension inside ExecAI Studio
+// Per-chat badges from the extension (busy / unseen / asking / wake / web).
+let chatFlags = {};
+// Who accepts tasks from the site. null — the agent never said (an older
+// agent): then the menu has no inbox section and the panel looks as before.
+let inboxData = null;
+// Subagents (E101). The agent reports them as a full snapshot (agents). null —
+// it never did (an older agent): no block, no badges, the panel as before.
+let agentsData = null;
+let agentsCollapsed = false;
+let agentsTick = null;
+let agentRowMeta = {};    // id → the meta span of its row, for the ticking duration
+let agentsStopping = {};  // id → Stop pressed, the snapshot has not caught up yet
+let viewAgent = null;     // the subagent whose transcript is on screen (read-only)
+let viewAgentStamp = '';  // its updated_at as last loaded: a newer one reloads it
+let agentReloading = false;
+let pendingAgent = null;  // asked for with open_agent, not loaded yet
+let agentTabs = [];       // [{id, title}] — subagent tabs on the strip
+let shownChat = null;     // the chat the log shows, or showed before a subagent
+// A chat started by a task from the site: the agent tags it in the chat list,
+// the extension also learns it from turn_start and passes it on as a flag.
+function isWebChat(id) {
+  if (!id) return false;
+  if (chatFlags[id] && chatFlags[id].web) return true;
+  return chatsData.some(c => c.id === id && c.origin === 'web');
+}
+function clock(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso || '';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+// A line under the log about a scheduled wake-up, with Now / Cancel.
+function wakeLine(at, reason) {
+  const w = el('div', 'notice wake');
+  w.appendChild(el('span', '', '🌙 ' + T.wakeNotice + clock(at) + (reason ? ' — ' + reason : '')));
+  const now = el('button', '', T.wakeNow);
+  now.onclick = () => vscode.postMessage({ type: 'agent_command', name: 'wake_now', value: '' });
+  const cancel = el('button', '', T.wakeCancel);
+  cancel.onclick = () => vscode.postMessage({ type: 'agent_command', name: 'cancel_wakeup', value: '' });
+  w.appendChild(now); w.appendChild(cancel);
+  return w;
+}
+
+function renderChips() {
+  chipsBox.innerHTML = '';
+  for (const a of attached) {
+    const c = el('span', 'chip');
+    if (a.thumb) {
+      const img = document.createElement('img');
+      img.src = a.thumb; img.title = a.label;
+      c.appendChild(img);
+    } else {
+      c.appendChild(el('span', '', (isImg(a.path) ? '🖼 ' : '📄 ') + a.label));
+    }
+    const x = el('i', '', '✕');
+    x.onclick = () => { attached = attached.filter(v => v.path !== a.path); renderChips(); };
+    c.appendChild(x);
+    chipsBox.appendChild(c);
+  }
+}
+function isImg(p) { return /\.(png|jpe?g|gif|webp)$/i.test(p || ''); }
+function addAttachments(items) {
+  for (const it of items || []) {
+    if (!attached.some(a => a.path === it.path)) attached.push(it);
+  }
+  renderChips();
+}
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function scroll() { log.scrollTop = log.scrollHeight; }
+
+const tabs = document.getElementById('tabs');
+
+// Chat tabs. The list comes from the agent (one entry per chat of this
+// project, with the current one flagged); the strip is redrawn whole because
+// it is a handful of nodes and diffing them would cost more than it saves.
+// Which chats sit on the strip, and in what order, belongs to the panel — not
+// to the agent. Closing a tab is a view action: the chat stays in history, a
+// turn in flight keeps running, and opening it from history brings it back.
+let tabsHidden = [];
+let tabsOrder = [];
+function saveTabs() {
+  const st = { hidden: tabsHidden, order: tabsOrder };
+  if (agentsCollapsed) st.agents_collapsed = true;
+  vscode.postMessage({ type: 'tabs_state', text: JSON.stringify(st) });
+}
+// The agent lists chats by last-modified, and switching chats saves the one
+// you are leaving — so its list reshuffles on every click. Tabs must not: the
+// strip keeps the order a chat first appeared in (or the one you dragged it
+// to), exactly like editor tabs. New chats are appended at the end.
+function rememberOrder() {
+  let added = false;
+  for (const c of chatsData) {
+    if (tabsOrder.indexOf(c.id) < 0) { tabsOrder.push(c.id); added = true; }
+  }
+  // Forget ids that no longer exist, so the list cannot grow without bound.
+  const alive = chatsData.map(c => c.id);
+  const before = tabsOrder.length;
+  tabsOrder = tabsOrder.filter(id => alive.indexOf(id) >= 0);
+  if (added || tabsOrder.length !== before) saveTabs();
+}
+function visibleChats() {
+  const pos = (id) => { const i = tabsOrder.indexOf(id); return i < 0 ? 1e6 : i; };
+  return chatsData.filter(c => tabsHidden.indexOf(c.id) < 0).slice()
+    .sort((a, b) => pos(a.id) - pos(b.id));
+}
+function renderTabs() {
+  rememberOrder();
+  tabs.innerHTML = '';
+  const list = visibleChats();
+  if (!list.length && !agentTabs.length) return; // nothing to switch between — no empty strip
+  // Subagents still going, per parent chat: "2▶" on the parent's tab.
+  const going = agentsData ? fleetView(agentsData, Date.now(), T).perChat : {};
+  for (const c of list) {
+    // While a subagent is on screen, no chat tab is the current one.
+    const current = c.active && !viewAgent;
+    const t = el('div', 'tab' + (current ? ' active' : ''));
+    const label = (c.label || '').trim() || T.untitledChat;
+    t.title = label;
+    t.draggable = true;
+    t.dataset.chat = c.id;
+    const f = Object.assign({}, c.busy ? { busy: true } : {}, c.wake ? { wake: c.wake } : {}, chatFlags[c.id] || {});
+    if (c.origin === 'web' || f.web) { const b = el('b', 'web', '🌐'); b.title = T.tabWeb; t.appendChild(b); }
+    t.appendChild(el('span', '', label));
+    if (going[c.id]) { const b = el('b', 'agents', going[c.id] + '▶'); b.title = T.tabAgents; t.appendChild(b); }
+    if (f.asking) { const b = el('b', 'ask', '?'); b.title = T.tabAsk; t.appendChild(b); }
+    else if (f.busy) { const b = el('b', 'busy', ''); b.title = T.tabBusy; t.appendChild(b); }
+    else if (f.unseen && !c.active) { const b = el('b', 'unseen', ''); b.title = T.tabUnseen; t.appendChild(b); }
+    if (f.wake) { const b = el('b', 'wake', '⏰'); b.title = T.tabWake + clock(f.wake); t.appendChild(b); }
+    const x = el('i', '', '×');
+    x.title = T.closeTab;
+    const close = (e) => {
+      if (e) e.stopPropagation();
+      if (tabsHidden.indexOf(c.id) < 0) tabsHidden.push(c.id);
+      saveTabs();
+      renderTabs();
+    };
+    x.onclick = close;
+    t.appendChild(x);
+    t.onclick = () => {
+      if (current) return;
+      vscode.postMessage({ type: 'agent_command', name: 'load_chat', value: c.id });
+    };
+    // Middle click closes, the way it does on editor tabs.
+    t.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); close(e); } };
+    t.ondragstart = (e) => {
+      e.dataTransfer.setData('text/plain', c.id);
+      t.classList.add('dragging');
+    };
+    t.ondragend = () => {
+      t.classList.remove('dragging');
+      for (const n of tabs.children) n.classList.remove('dropbefore');
+    };
+    t.ondragover = (e) => { e.preventDefault(); t.classList.add('dropbefore'); };
+    t.ondragleave = () => t.classList.remove('dropbefore');
+    t.ondrop = (e) => {
+      e.preventDefault();
+      t.classList.remove('dropbefore');
+      const moved = e.dataTransfer.getData('text/plain');
+      if (!moved || moved === c.id) return;
+      const ids = visibleChats().map(v => v.id).filter(id => id !== moved);
+      const at = ids.indexOf(c.id);
+      ids.splice(at < 0 ? ids.length : at, 0, moved);
+      tabsOrder = ids;
+      saveTabs();
+      renderTabs();
+    };
+    tabs.appendChild(t);
+  }
+  // Subagent tabs: a transcript to read, opened from the Agents block.
+  for (const a of agentTabs) {
+    const t = el('div', 'tab agent' + (a.id === viewAgent ? ' active' : ''));
+    t.title = T.agentTab;
+    t.dataset.agent = a.id;
+    const bot = el('b', 'bot', '🤖');
+    bot.title = T.agentTab;
+    t.appendChild(bot);
+    t.appendChild(el('span', '', a.title || a.id));
+    const r = agentRecord(a.id);
+    if (r && r.state === 'waiting') { const b = el('b', 'ask', '?'); b.title = T.agWaiting; t.appendChild(b); }
+    else if (r && (r.state === 'running' || r.state === 'queued')) { const b = el('b', 'busy', ''); b.title = T.agRunning; t.appendChild(b); }
+    const x = el('i', '', '×');
+    x.title = T.closeTab;
+    x.onclick = (e) => {
+      if (e) e.stopPropagation();
+      agentTabs = agentTabs.filter(v => v.id !== a.id);
+      if (a.id === viewAgent || a.id === pendingAgent) { pendingAgent = null; backToChat(); }
+      renderTabs();
+    };
+    t.appendChild(x);
+    t.onclick = () => { if (a.id !== viewAgent) openAgent(a.id, a.title); };
+    tabs.appendChild(t);
+  }
+  const plus = el('button', 'newtab', '+');
+  plus.title = T.newTabTitle;
+  plus.onclick = () => vscode.postMessage({ type: 'new_chat_ui' });
+  tabs.appendChild(plus);
+  // The strip is narrower than the tabs almost immediately — keep the current
+  // chat visible instead of leaving the user to scroll for it.
+  const act = tabs.querySelector('.tab.active');
+  if (act && act.scrollIntoView) act.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+// A vertical wheel over a horizontal strip does nothing by default; here it is
+// the only way to reach tabs that do not fit.
+tabs.addEventListener('wheel', (e) => {
+  if (e.deltaY === 0 || tabs.scrollWidth <= tabs.clientWidth) return;
+  tabs.scrollLeft += e.deltaY;
+  e.preventDefault();
+}, { passive: false });
+function refreshTabs() { vscode.postMessage({ type: 'agent_command', name: 'list_chats' }); }
+
+// ── subagents (E101) ──
+// The Agents block over the composer: one row per subagent — state, title,
+// iteration, last tool, how long it has run — and Stop while it goes. A click
+// opens its transcript in a read-only tab; the agent pushes a fresh snapshot
+// on every change, so the block is redrawn whole.
+const agentsBox = document.getElementById('agents');
+function agentRecord(id) {
+  return (agentsData || []).find(a => a && a.id === id) || null;
+}
+function agentStateLabel(st) {
+  const m = { queued: T.agQueued, running: T.agRunning, waiting: T.agWaiting,
+              done: T.agDone, failed: T.agFailed, cancelled: T.agCancelled };
+  return m[st] || st || '';
+}
+function renderAgents() {
+  const v = fleetView(agentsData, Date.now(), T);
+  agentsBox.innerHTML = '';
+  agentRowMeta = {};
+  if (!v.rows.length) {
+    agentsBox.classList.remove('on');
+    if (agentsTick) { clearInterval(agentsTick); agentsTick = null; }
+    return;
+  }
+  agentsBox.classList.add('on');
+  const head = el('div', 'ag-head');
+  head.title = T.agentsToggle;
+  head.appendChild(el('span', 'ag-caret', agentsCollapsed ? '▸' : '▾'));
+  let sum = T.agentsHead;
+  if (v.running) sum += ' · ' + T.agentsRunning.replace('{n}', v.running);
+  if (v.done) sum += ' · ' + T.agentsDone.replace('{n}', v.done);
+  if (v.failed) sum += ' · ' + T.agentsFailed.replace('{n}', v.failed);
+  head.appendChild(el('span', 'ag-sum', sum));
+  head.onclick = () => {
+    agentsCollapsed = !agentsCollapsed;
+    saveTabs();
+    renderAgents();
+    if (!agentsCollapsed) vscode.postMessage({ type: 'agent_command', name: 'list_agents' });
+  };
+  agentsBox.appendChild(head);
+  if (!agentsCollapsed) {
+    const list = el('div', 'ag-list');
+    for (const r of v.rows) {
+      const row = el('div', 'ag-row' + (r.id === viewAgent ? ' on' : ''));
+      row.setAttribute('data-agent', r.id);
+      row.setAttribute('data-state', r.state);
+      row.title = r.tip + '\n' + T.agentOpenTitle;
+      row.appendChild(el('span', 'ag-st', r.icon));
+      row.appendChild(el('span', 'ag-title', r.title));
+      const meta = el('span', 'ag-meta' + (r.low || r.exhausted ? ' warn' : ''), r.meta);
+      row.appendChild(meta);
+      agentRowMeta[r.id] = meta;
+      // +25 needs an agent that knows extend_agent: it is the one that reports
+      // subagent_iter in its state. exhausted alone is proof enough.
+      if (r.active && stateData.subagentIter) row.appendChild(agentMoreBtn(r.id, T.agentMore, T.agentMoreTitle));
+      if (r.exhausted) row.appendChild(agentMoreBtn(r.id, T.agentContinue, T.agentContinueTitle));
+      if (r.active) {
+        const b = el('button', 'ag-stop', T.agentStop);
+        b.title = T.agentStopTitle;
+        if (agentsStopping[r.id]) b.disabled = true;
+        b.onclick = (ev) => {
+          if (ev && ev.stopPropagation) ev.stopPropagation();
+          agentsStopping[r.id] = true;
+          b.disabled = true;
+          vscode.postMessage({ type: 'agent_command', name: 'stop_agent', value: r.id });
+        };
+        row.appendChild(b);
+      }
+      row.onclick = () => openAgent(r.id, r.title);
+      list.appendChild(row);
+    }
+    agentsBox.appendChild(list);
+  }
+  // Durations tick while something runs. Only the text changes: rebuilding
+  // the rows every second would swallow a click landing mid-rebuild.
+  if (v.running && !agentsTick) agentsTick = setInterval(tickAgents, 1000);
+  else if (!v.running && agentsTick) { clearInterval(agentsTick); agentsTick = null; }
+}
+// More steps for a subagent: +25 while it goes, or a continuation of one that
+// hit its limit — both are extend_agent. The agent answers with a notice and a
+// fresh snapshot; until then a second click would give twice as much.
+function agentMoreBtn(id, label, title) {
+  const b = el('button', 'ag-more', label);
+  b.title = title;
+  if (agentsStopping[id]) b.disabled = true;
+  b.onclick = (ev) => {
+    if (ev && ev.stopPropagation) ev.stopPropagation();
+    b.disabled = true;
+    setTimeout(() => { b.disabled = !!agentsStopping[id]; }, 1500);
+    vscode.postMessage({ type: 'agent_command', name: 'extend_agent', value: id });
+  };
+  return b;
+}
+function tickAgents() {
+  for (const r of fleetView(agentsData, Date.now(), T).rows) {
+    const m = agentRowMeta[r.id];
+    if (m) m.textContent = r.meta;
+  }
+}
+// Opens a subagent's transcript: a tab of its own, filled by agent_loaded.
+function openAgent(id, title) {
+  if (!id) return;
+  closeMenu();
+  const known = agentTabs.find(a => a.id === id);
+  if (known) { if (title) known.title = title; }
+  else agentTabs.push({ id, title: title || id });
+  pendingAgent = id;
+  vscode.postMessage({ type: 'agent_command', name: 'open_agent', value: id });
+  renderTabs();
+}
+function leaveAgentView() {
+  const was = viewAgent || pendingAgent;
+  viewAgent = null; pendingAgent = null; viewAgentStamp = ''; agentReloading = false;
+  document.body.classList.remove('agentview');
+  // The chat tab is the current one again — at once, not when the list comes.
+  if (was) { renderTabs(); renderAgents(); }
+}
+// From a transcript back to the chat that was on screen; the view switches
+// when chat_loaded arrives.
+function backToChat() {
+  const cur = chatsData.find(c => c.active);
+  const id = shownChat || (cur ? cur.id : '');
+  if (id) vscode.postMessage({ type: 'agent_command', name: 'load_chat', value: id });
+  else vscode.postMessage({ type: 'new_chat_ui' });
+}
+document.getElementById('roBack').onclick = backToChat;
+// Chat events that only draw into the log. While a transcript is on screen
+// they are skipped: going back reloads the chat, and the agent replays a turn
+// still in flight. Questions are never skipped — they wait for an answer.
+const LOG_ONLY = { reasoning_delta: 1, text_delta: 1, tool_call: 1, tool_chunk: 1, tool_result: 1,
+  files_changed: 1, auto_user: 1, wakeup: 1, wakeup_cancelled: 1, queued: 1, context_attached: 1 };
+
+// A saved conversation into the log: chat_loaded and agent_loaded.
+function renderHistory(msgs, webFirst) {
+  for (const m of msgs || []) {
+    const asWeb = webFirst && m.role === 'user';
+    webFirst = false;
+    if (asWeb) log.appendChild(el('div', 'msg user auto web', '🌐 ' + T.webTurn + (m.text || '')));
+    else if (m.role === 'user') log.appendChild(el('div', 'msg user', m.text));
+    else if (m.role === 'assistant') {
+      const a = el('div', 'msg assistant');
+      a._md = m.text || '';
+      a.innerHTML = renderMarkdown(a._md);
+      log.appendChild(a);
+    }
+    else if (m.role === 'tool') {
+      const box = el('div', 'tool');
+      const head = el('div', 'tool-head');
+      head.appendChild(el('span', 'tool-name', m.tool || ''));
+      head.appendChild(el('span', 'tool-sum', m.text || ''));
+      box.appendChild(head);
+      log.appendChild(box);
+    }
+  }
+}
+
+// Copy buttons. The answer is re-rendered from markdown on every token, so the
+// buttons cannot live in the markup — they are attached after a render, and
+// only for blocks that do not have one yet.
+function decorate(root) {
+  const pres = root.querySelectorAll('pre.code');
+  for (const pre of pres) {
+    if (pre.parentElement && pre.parentElement.classList.contains('codewrap')) continue;
+    const wrap = el('div', 'codewrap');
+    pre.parentElement.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+    const b = el('button', 'copy', T.copy);
+    b.dataset.copyCode = '1';
+    wrap.appendChild(b);
+  }
+  if (root.classList && root.classList.contains('assistant') && !root.querySelector(':scope > .copy-msg')) {
+    const b = el('button', 'copy-msg', T.copyMsg);
+    b.dataset.copyMsg = '1';
+    root.appendChild(b);
+  }
+}
+
+// One delegated handler for the whole log: links and copy buttons. Delegation
+// is not a style choice here — innerHTML of an answer is replaced on every
+// token, so anything bound to a node inside it would be gone a moment later.
+log.addEventListener('click', (e) => {
+  const path = e.composedPath();
+  for (const node of path) {
+    if (!node || !node.dataset) continue;
+    if (node.dataset.copyCode) {
+      const wrap = node.parentElement;
+      const code = wrap && wrap.querySelector('pre.code');
+      if (code) vscode.postMessage({ type: 'copy_text', text: code.textContent || '' });
+      node.textContent = T.copied;
+      setTimeout(() => { node.textContent = T.copy; }, 1500);
+      e.preventDefault();
+      return;
+    }
+    if (node.dataset.copyMsg) {
+      const msg = node.parentElement;
+      // The raw markdown, not the rendered text: what the model actually wrote.
+      const text = (msg && msg._md) || (msg ? msg.innerText : '');
+      vscode.postMessage({ type: 'copy_text', text });
+      node.textContent = T.copied;
+      setTimeout(() => { node.textContent = T.copyMsg; }, 1500);
+      e.preventDefault();
+      return;
+    }
+    if (node.tagName === 'A') {
+      const file = node.dataset.file;
+      if (file) {
+        if (!BROWSER) vscode.postMessage({ type: 'open_file', path: file, line: node.dataset.line || '' });
+        e.preventDefault();
+        return;
+      }
+      const href = node.getAttribute('href') || '';
+      if (/^(https?:|mailto:)/i.test(href)) {
+        // Open through the extension: the webview host would also handle this,
+        // but then the panel has no say in what counts as a safe link.
+        vscode.postMessage({ type: 'open_external', text: href });
+        e.preventDefault();
+      }
+      return;
+    }
+  }
+});
+
+// Turn timer: how long the agent has been working. Seconds beat a spinner —
+// they show whether it is thinking or hung.
+const timerEl = document.getElementById('timer');
+let timerId = null, timerT0 = 0;
+function startTimer() {
+  timerT0 = Date.now();
+  timerEl.textContent = '0.0' + T.secs;
+  clearInterval(timerId);
+  timerId = setInterval(() => {
+    timerEl.textContent = ((Date.now() - timerT0) / 1000).toFixed(1) + T.secs;
+  }, 100);
+}
+function stopTimer() { clearInterval(timerId); timerId = null; }
+
+// Safety net: the done event may never arrive (agent crashed, protocol drifted).
+// A stop button that hangs forever lies about the state — reset it on ready/state.
+function clearBusy() {
+  document.body.classList.remove('busy');
+  stopTimer();
+  for (const t of Object.values(tools)) t.box.classList.remove('run');
+}
+function clearEmpty() { document.getElementById('empty')?.remove(); }
+
+function send() {
+  const text = inp.value.trim();
+  if (!text && !attached.length) return;
+  clearEmpty();
+  const bubble = el('div', 'msg user', text);
+  if (attached.length) {
+    const g = el('div', 'gallery');
+    for (const a of attached) {
+      if (a.thumb) {
+        const img = document.createElement('img');
+        img.src = a.thumb; img.title = a.label;
+        g.appendChild(img);
+      } else {
+        g.appendChild(el('span', 'fchip', (isImg(a.path) ? '🖼 ' : '📄 ') + a.label));
+      }
+    }
+    bubble.appendChild(g);
+  }
+  log.appendChild(bubble);
+  inp.value = '';
+  curAssistant = null; curThinking = null;
+  vscode.postMessage({ type: 'send', text, files: attached.map(a => a.path) });
+  attached = []; renderChips();
+  // The chat has begun: "Getting started" steps aside, even when asked for.
+  startForced = false;
+  renderStart();
+  scroll();
+}
+sendBtn.onclick = send;
+document.getElementById('filesBtn').onclick = () => vscode.postMessage({ type: 'pick_files' });
+
+// ── command popup (like Claude Code: right in the chat, above the input) ──
+const menu = document.getElementById('menu');
+const statusEl = document.getElementById('status');
+let stateData = { model: '', source: '', models: [], sources: [],
+                   efforts: [], connectable: [], securities: [], security: '',
+                   user: '', effort: '', maxIter: 0, subagentIter: 0 };
+let chatsData = [];
+let menuView = null; // null | 'root' | 'models' | 'sources' | 'chats'
+
+function renderStatus() {
+  statusEl.innerHTML = '';
+  const b = el('b', '', stateData.model || '…');
+  statusEl.appendChild(b);
+  statusEl.appendChild(el('span', '', '·'));
+  statusEl.appendChild(el('span', '', stateData.source || '…'));
+  if (stateData.effort && stateData.effort !== 'off') {
+    statusEl.appendChild(el('span', '', '·'));
+    statusEl.appendChild(el('span', '', 'effort ' + stateData.effort));
+  }
+  if (inboxData && inboxData.state === 'listening') {
+    const g = el('span', 'inbox', '🌐');
+    g.title = T.inboxListening;
+    statusEl.appendChild(g);
+  }
+  if (!stateData.user) {
+    statusEl.appendChild(el('span', '', '·'));
+    const w = el('span', '', T.notSignedIn);
+    w.style.color = 'var(--vscode-inputValidation-warningBorder, #b89500)';
+    statusEl.appendChild(w);
+  }
+}
+statusEl.onclick = () => {
+  if (menu.classList.contains('open')) closeMenu();
+  else { vscode.postMessage({ type: 'agent_command', name: 'state' }); menuRoot(); }
+};
+
+// key is a stable test anchor. Labels are translated, so a test that finds a
+// menu entry by its text breaks when the editor language changes (caught by
+// the self-test run: the profile was English, assertions looked for Russian).
+function mi(label, extra, onclick, checked, key) {
+  const d = el('div', 'mi');
+  if (key) d.setAttribute('data-mi', key);
+  d.appendChild(el('span', 'check', checked ? '✓' : ''));
+  const g = el('span', 'grow', label);
+  d.appendChild(g);
+  if (extra) d.appendChild(Object.assign(el('small', '', extra), {}));
+  d.onclick = onclick;
+  return d;
+}
+function closeMenu() { menu.classList.remove('open'); menuView = null; }
+function menuRoot() {
+  menuView = 'root';
+  menu.innerHTML = '';
+  menu.appendChild(mi(T.mModel, stateData.model || '…', () => menuList('models'), false, 'models'));
+  menu.appendChild(mi(T.mSource, stateData.source || '…', () => menuList('sources'), false, 'sources'));
+  menu.appendChild(mi(T.mConnect, '', () => menuList('connectable'), false, 'connect'));
+  menu.appendChild(el('div', 'sep'));
+  menu.appendChild(mi(T.mEffort, stateData.effort || '…', () => menuList('efforts'), false, 'efforts'));
+  menu.appendChild(mi(T.mSecurity, stateData.security || '…', () => menuList('securities'), false, 'securities'));
+  menu.appendChild(mi(T.mMaxIter, String(stateData.maxIter || ''), () => {
+    closeMenu();
+    vscode.postMessage({ type: 'agent_command', name: 'set_max_iterations' });
+  }, false, 'maxiter'));
+  // An older agent does not report it and would not take the command.
+  if (stateData.subagentIter) {
+    menu.appendChild(mi(T.mSubagentIter, String(stateData.subagentIter), () => {
+      closeMenu();
+      vscode.postMessage({ type: 'agent_command', name: 'set_subagent_iterations' });
+    }, false, 'subagentiter'));
+  }
+  menu.appendChild(el('div', 'sep'));
+  if (stateData.user) {
+    menu.appendChild(mi(T.mLogout, stateData.user, () => {
+      closeMenu();
+      vscode.postMessage({ type: 'agent_command', name: 'logout' });
+    }, false, 'logout'));
+  } else {
+    menu.appendChild(mi(T.mLogin, T.loginNone, () => {
+      closeMenu();
+      // No optimistic notice here: login_start from the agent draws the real
+      // link, and a dead agent gets a real error from the extension side.
+      vscode.postMessage({ type: 'agent_command', name: 'login' });
+    }, false, 'login'));
+  }
+  menuInbox();
+  menu.appendChild(el('div', 'sep'));
+  menu.appendChild(mi(T.mMachine, '', () => { closeMenu(); openMachine(); }, false, 'machine'));
+  menu.appendChild(mi(T.mStart, '', () => { closeMenu(); vscode.postMessage({ type: 'start_reopen' }); }, false, 'start'));
+  menu.appendChild(el('div', 'sep'));
+  menu.appendChild(mi(T.mResume, '', () => {
+    closeMenu();
+    vscode.postMessage({ type: 'agent_command', name: 'resume_last' });
+  }, false, 'resume'));
+  menu.appendChild(mi(T.mNewChat, '', () => { closeMenu(); vscode.postMessage({ type: 'new_chat_ui' }); }, false, 'newchat'));
+  // A browser has no agent process of its own to restart and no terminal.
+  if (!BROWSER) {
+    menu.appendChild(mi(T.mRestart, '', () => { closeMenu(); vscode.postMessage({ type: 'restart' }); }, false, 'restart'));
+    menu.appendChild(mi(T.mTerminal, '', () => { closeMenu(); vscode.postMessage({ type: 'open_terminal' }); }, false, 'terminal'));
+  }
+  if (isStudio) {
+    menu.appendChild(el('div', 'sep'));
+    menu.appendChild(mi(T.mCheckUpdates, '', () => { closeMenu(); vscode.postMessage({ type: 'check_updates' }); }, false, 'updates'));
+  }
+  menu.classList.add('open');
+}
+// Tasks from the site: who accepts them, and what can be done about it.
+function menuInbox() {
+  const entries = inboxMenuEntries(inboxData, T, PAYMENT_URL);
+  if (!entries.length) return;
+  menu.appendChild(el('div', 'sep'));
+  for (const it of entries) {
+    const msg = it.msg;
+    const d = mi(it.label, it.extra || '', msg ? () => { closeMenu(); vscode.postMessage(msg); } : null, false, it.key);
+    if (it.info) {
+      d.classList.add('info');
+      if (msg) d.classList.add('act');
+      d.firstChild.textContent = '🌐';
+      d.setAttribute('data-inbox-state', inboxData.state);
+    }
+    menu.appendChild(d);
+  }
+}
+function menuList(kind) {
+  menuView = kind;
+  menu.innerHTML = '';
+  const head = el('div', 'head');
+  const back = el('span', '', T.back);
+  back.onclick = menuRoot;
+  head.appendChild(back);
+  const titles = { models: T.mModel, sources: T.mSource,
+                   efforts: T.mEffort, connectable: T.mConnect, securities: T.mSecurity };
+  head.appendChild(el('span', '', titles[kind] || kind));
+  menu.appendChild(head);
+  const cmdFor = { models: 'set_model', sources: 'set_source',
+                   efforts: 'set_effort', connectable: 'connect', securities: 'set_security' };
+  const items = stateData[kind] || [];
+  if (!items.length) menu.appendChild(el('div', 'mi', T.listEmpty));
+  for (const it of items) {
+    menu.appendChild(mi(it.label || it.id, '', () => {
+      vscode.postMessage({ type: 'agent_command', name: cmdFor[kind], value: it.id });
+      // Source and effort apply instantly — stay in the menu, a fresh state will
+      // redraw the root. Model and connect close it: the latter continues with a
+      // key prompt in the editor.
+      if (kind === 'sources') menuRoot();
+      else closeMenu();
+    }, !!it.active, 'item:' + it.id));
+  }
+}
+function menuChats() {
+  menuView = 'chats';
+  menu.innerHTML = '';
+  const head = el('div', 'head');
+  head.appendChild(el('span', '', T.histHead));
+  menu.appendChild(head);
+  if (!chatsData.length) menu.appendChild(el('div', 'mi', T.histEmpty));
+  for (const c of chatsData) {
+    menu.appendChild(mi(c.label || c.id, '', () => {
+      closeMenu();
+      // Reopening from history brings the tab back: hidden means "not on my
+      // strip right now", not "gone".
+      tabsHidden = tabsHidden.filter(id => id !== c.id);
+      saveTabs();
+      vscode.postMessage({ type: 'agent_command', name: 'load_chat', value: c.id });
+    }, !!c.active));
+  }
+  menu.classList.add('open');
+}
+document.getElementById('histBtn').onclick = () => {
+  if (menuView === 'chats') { closeMenu(); return; }
+  vscode.postMessage({ type: 'agent_command', name: 'list_chats' });
+  menuChats(); // cache first, the chats event redraws
+};
+
+document.getElementById('cmdBtn').onclick = () => {
+  if (menu.classList.contains('open')) { closeMenu(); return; }
+  vscode.postMessage({ type: 'agent_command', name: 'state' }); // refresh the lists
+  menuRoot();
+};
+document.addEventListener('click', (e) => {
+  // Via composedPath, not contains: clicking a menu item redraws the menu
+  // synchronously, the target detaches from the DOM, and contains() lied
+  // "the click was outside" — the menu closed on ANY click inside a submenu.
+  const path = e.composedPath();
+  if (path.includes(menu) || path.includes(statusEl)) return;
+  if (path.some((n) => n && (n.id === 'cmdBtn' || n.id === 'histBtn'))) return;
+  // A button that opens the menu itself (the "Connect a source" step).
+  if (path.some((n) => n && n.classList && n.classList.contains && n.classList.contains('keep-menu'))) return;
+  closeMenu();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+inp.onkeydown = (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+};
+stopBtn.onclick = () => vscode.postMessage({ type: 'stop' });
+
+function assistant() {
+  if (!curAssistant) {
+    curAssistant = el('div', 'msg assistant');
+    log.appendChild(curAssistant);
+  }
+  return curAssistant;
+}
+
+function addAsk(e, isPermission) {
+  const box = el('div', 'ask');
+  // A subagent asks through its parent's chat: say which one, and let the
+  // name open what it has done so far.
+  const ag = e.agent;
+  if (ag && (ag.title || ag.id)) {
+    const tag = el('div', 'ask-agent', '🤖 ' + T.askFromAgent + (ag.title || ag.id));
+    if (ag.id) tag.onclick = () => openAgent(ag.id, ag.title);
+    box.appendChild(tag);
+  }
+  box.appendChild(el('div', 'ask-title',
+    isPermission ? T.askPerm + (e.tool || '') : T.askQuestion));
+  if (isPermission) box.appendChild(el('div', 'ask-sum', e.summary || ''));
+  else box.appendChild(el('div', 'ask-sum', e.question || ''));
+  for (const o of e.options || []) {
+    const b = document.createElement('button');
+    const bb = el('b', '', o.label);
+    b.appendChild(bb);
+    if (o.description) b.appendChild(el('small', '', o.description));
+    b.onclick = () => {
+      vscode.postMessage({ type: 'answer', id: e.id, value: o.value });
+      box.classList.add('answered');
+      bb.textContent = '✓ ' + o.label;
+    };
+    box.appendChild(b);
+  }
+  if (e.id) asks[e.id] = box;
+  log.appendChild(box);
+  scroll();
+}
+
+// ── file drag&drop: the VS Code explorer, the OS, a browser ──
+// Capture phase on window: otherwise a drop into the textarea pastes the path as
+// TEXT, and the user gets "the AI sees the file but there is no chip".
+function pathsFromDataTransfer(dt) {
+  const out = [];
+  const push = (u) => {
+    u = (u || '').trim();
+    if (!u) return;
+    if (u.startsWith('file://')) out.push(decodeURIComponent(u.slice(7)));
+    else if (u.startsWith('/')) out.push(u);
+  };
+  // The VS Code explorer puts its own types on the transfer, the OS uses
+  // text/uri-list, Mozilla-compatible managers use text/x-moz-url, and
+  // text/plain is often there too.
+  for (const t of ['text/uri-list', 'application/vnd.code.uri-list', 'resourceurls', 'text/x-moz-url', 'text/plain']) {
+    const v = dt.getData(t);
+    if (!v) continue;
+    if (t === 'resourceurls') {
+      try { for (const u of JSON.parse(v)) push(u); } catch {}
+    } else {
+      for (const line of v.split(String.fromCharCode(10))) push(line);
+    }
+    if (out.length) break;
+  }
+  return [...new Set(out)];
+}
+let dragDiagShown = false;
+window.addEventListener('dragenter', (e) => {
+  // Field diagnostics: show what we see, once per drag.
+  if (dragDiagShown) return;
+  dragDiagShown = true;
+  const types = Array.from((e.dataTransfer && e.dataTransfer.types) || []);
+  log.appendChild(el('div', 'notice', T.dragSeen + (types.join(', ') || T.dragNone)));
+  scroll();
+}, true);
+window.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  document.body.classList.add('dragover');
+}, true);
+window.addEventListener('dragleave', () => document.body.classList.remove('dragover'), true);
+window.addEventListener('drop', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  dragDiagShown = false;
+  document.body.classList.remove('dragover');
+  const dt = e.dataTransfer;
+  if (!dt) return;
+  const paths = pathsFromDataTransfer(dt);
+  if (paths.length) {
+    vscode.postMessage({ type: 'attach_paths', paths });
+    return;
+  }
+  let blobs = 0;
+  for (const f of dt.files || []) {
+    if (f.size > 8 * 1024 * 1024) continue;
+    blobs++;
+    const r = new FileReader();
+    r.onload = () => vscode.postMessage({ type: 'paste_blob', name: f.name, dataURL: r.result });
+    r.readAsDataURL(f);
+  }
+  if (!blobs) {
+    // Do not stay silent: visible diagnostics beat "the drop went nowhere".
+    log.appendChild(el('div', 'notice',
+      T.dropUnknown + Array.from(dt.types || []).join(', ')));
+    scroll();
+  }
+}, true);
+
+// ── Ctrl+V paste: screenshots and files from the clipboard ──
+document.addEventListener('paste', (e) => {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (const it of items) {
+    if (it.kind !== 'file') continue;
+    const f = it.getAsFile();
+    if (!f || f.size > 8 * 1024 * 1024) continue;
+    e.preventDefault();
+    const name = f.name && f.name !== 'image.png' ? f.name : 'clipboard-' + Date.now() + '.png';
+    const r = new FileReader();
+    r.onload = () => vscode.postMessage({ type: 'paste_blob', name, dataURL: r.result });
+    r.readAsDataURL(f);
+  }
+});
+
+// ── getting started and the machine card (E105) ──
+// The agent describes this machine in machine_state: the account, which
+// model sources answered, what sync carries, whether the web and the phone
+// can reach it, and the getting-started steps with their ticks. An older
+// agent never does: then neither card is drawn (the machine card, opened by
+// hand, says to update the agent).
+const startBox = document.getElementById('start');
+const machineBox = document.getElementById('machine');
+let machineData = null;     // machine_state as the extension forwards it (phone_qr included)
+let machineOld = false;     // the agent does not know machine_state
+let startDismissed = true;  // until start_prefs says otherwise: no flash of a closed screen
+let startForced = false;    // asked for: the menu item or the command
+let startQr = false;        // the phone step shows its code
+let machineOpen = false;
+let machineQr = false;
+function chatIsEmpty() { return !log.querySelector('.msg'); }
+// The QR code of the phone link: an SVG path the extension made (src/qr.ts),
+// dark on white whatever the theme. Nothing is fetched.
+function qrBlock() {
+  const w = el('div', 'qr-wrap');
+  const q = machineData && machineData.phone_qr;
+  const url = (machineData && machineData.phone_url) || '';
+  if (q && Number.isInteger(q.size) && q.size > 0 && /^[Mhvz0-9 -]*$/.test(q.path || '')) {
+    const box = el('div', 'qr');
+    box.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + q.size + ' ' + q.size +
+      '" shape-rendering="crispEdges"><rect width="' + q.size + '" height="' + q.size +
+      '" fill="#fff"/><path d="' + q.path + '" fill="#000"/></svg>';
+    w.appendChild(box);
+  }
+  if (url) {
+    const line = el('div', 'qr-link');
+    line.appendChild(el('span', '', url.replace('https://', '').replace('http://', '')));
+    const copy = el('button', 'qr-copy', T.copy);
+    copy.onclick = () => {
+      vscode.postMessage({ type: 'copy_text', text: url });
+      copy.textContent = T.copied;
+      setTimeout(() => { copy.textContent = T.copy; }, 1500);
+    };
+    const open = el('button', 'qr-open', T.qrOpen);
+    open.onclick = () => vscode.postMessage({ type: 'open_external', text: url });
+    line.appendChild(copy);
+    line.appendChild(open);
+    w.appendChild(line);
+  }
+  return w;
+}
+// Each step's button does the job with what the panel already has: the
+// sign-in, the "Connect a source" list, the project picker. Sync asks for a
+// password, so it runs as execai sync on in a terminal — or, in a browser
+// with no terminal, the command is copied.
+function startAction(a, btn) {
+  switch (a) {
+    case 'login':
+      vscode.postMessage({ type: 'agent_command', name: 'login' });
+      break;
+    case 'connect':
+      vscode.postMessage({ type: 'agent_command', name: 'state' }); // fresh lists
+      menuList('connectable');
+      menu.classList.add('open');
+      break;
+    case 'sync_on':
+      if (BROWSER) {
+        vscode.postMessage({ type: 'copy_text', text: 'execai sync on' });
+        btn.textContent = T.copied;
+        setTimeout(() => { btn.textContent = T.stSyncBtnCopy; }, 1500);
+      } else {
+        vscode.postMessage({ type: 'open_terminal', text: 'sync on' });
+      }
+      break;
+    case 'bind':
+      vscode.postMessage({ type: 'pick_workspace' });
+      break;
+    case 'qr': {
+      startQr = !startQr;
+      renderStart();
+      const q = startQr && startBox.querySelector('.qr-wrap');
+      if (q && q.scrollIntoView) q.scrollIntoView({ block: 'nearest' });
+      break;
+    }
+  }
+}
+function renderStart() {
+  const bound = inboxData && inboxData.bound_workspace;
+  const steps = machineData ? startSteps(machineData, bound, T, Date.now()) : [];
+  // One card at a time: the machine card, opened by hand, wins.
+  const on = !viewAgent && !machineOpen &&
+    showStart({ steps, dismissed: startDismissed, chatEmpty: chatIsEmpty(), forced: startForced });
+  startBox.innerHTML = '';
+  startBox.classList.toggle('on', on);
+  if (!on) return;
+  const head = el('div', 'st-head');
+  head.appendChild(el('span', 'st-title', T.startTitle));
+  head.appendChild(el('span', 'st-count', steps.filter(s => s.done).length + '/' + steps.length));
+  const x = el('button', 'st-close', '×');
+  x.title = T.startClose;
+  x.onclick = () => {
+    startForced = false;
+    startDismissed = true;
+    startQr = false;
+    vscode.postMessage({ type: 'start_dismiss' });
+    renderStart();
+  };
+  head.appendChild(x);
+  startBox.appendChild(head);
+  startBox.appendChild(el('div', 'st-lead', T.startLead));
+  for (const s of steps) {
+    const row = el('div', 'st-step' + (s.done ? ' done' : ''));
+    row.setAttribute('data-step', s.id);
+    const mark = el('span', 'st-mark', s.done ? '✓' : '○');
+    mark.title = s.done ? T.stDone : T.stTodo;
+    row.appendChild(mark);
+    const body = el('div', 'st-body');
+    body.appendChild(el('div', 'st-name', s.title));
+    body.appendChild(el('div', 'st-why', s.why));
+    for (const line of s.lines) body.appendChild(el('div', 'st-line', line));
+    if (s.action) {
+      let label = s.actionLabel;
+      if (s.action === 'qr' && startQr) label = T.stPhoneHide;
+      if (s.action === 'sync_on' && BROWSER) label = T.stSyncBtnCopy;
+      const b = el('button', 'st-act' + (s.action === 'connect' ? ' keep-menu' : ''), label);
+      b.onclick = () => startAction(s.action, b);
+      body.appendChild(b);
+    }
+    if (s.id === 'phone' && startQr) body.appendChild(qrBlock());
+    row.appendChild(body);
+    startBox.appendChild(row);
+  }
+}
+function openMachine() {
+  machineOpen = true;
+  machineQr = false;
+  renderMachine();
+  renderStart();
+  vscode.postMessage({ type: 'machine_refresh' });
+}
+function renderMachine() {
+  machineBox.innerHTML = '';
+  machineBox.classList.toggle('on', machineOpen);
+  if (!machineOpen) return;
+  const head = el('div', 'mc-head');
+  head.appendChild(el('span', 'mc-title', T.machineTitle));
+  const r = el('button', 'mc-refresh', '↻');
+  r.title = T.machineRefresh;
+  r.onclick = () => vscode.postMessage({ type: 'machine_refresh' });
+  head.appendChild(r);
+  const x = el('button', 'mc-close', '×');
+  x.title = T.machineClose;
+  x.onclick = () => { machineOpen = false; machineQr = false; renderMachine(); renderStart(); };
+  head.appendChild(x);
+  machineBox.appendChild(head);
+  if (!machineData) {
+    machineBox.appendChild(el('div', 'mc-note', machineOld ? T.machineOld : T.machineLoading));
+    // The editor can fetch a newer agent; execai ui is the agent itself.
+    if (machineOld && !BROWSER) {
+      const u = el('button', 'mc-update', T.machineUpdate);
+      u.onclick = () => vscode.postMessage({ type: 'update_agent' });
+      const btns = el('div', 'mc-btns');
+      btns.appendChild(u);
+      machineBox.appendChild(btns);
+    }
+    return;
+  }
+  for (const row of machineRows(machineData, T, Date.now())) {
+    const d = el('div', 'mc-row' + (row.tone ? ' ' + row.tone : ''));
+    d.setAttribute('data-row', row.key);
+    d.appendChild(el('span', 'mc-label', row.label));
+    const v = el('div', 'mc-val');
+    if (row.value) v.appendChild(el('div', '', row.value));
+    for (const line of row.lines) v.appendChild(el('div', 'mc-line', line));
+    d.appendChild(v);
+    machineBox.appendChild(d);
+  }
+  const btns = el('div', 'mc-btns');
+  if (machineData.phone_url) {
+    const q = el('button', 'mc-qr', machineQr ? T.stPhoneHide : T.machineQr);
+    q.onclick = () => { machineQr = !machineQr; renderMachine(); };
+    btns.appendChild(q);
+  }
+  const st = el('button', 'mc-start', T.mStart);
+  st.onclick = () => vscode.postMessage({ type: 'start_reopen' });
+  btns.appendChild(st);
+  machineBox.appendChild(btns);
+  if (machineQr) machineBox.appendChild(qrBlock());
+}
+// Events after which the chat may have become empty or not.
+const START_EVENTS = { ready: 1, chat_reset: 1, chat_loaded: 1, auto_user: 1, turn_start: 1,
+  inbox: 1, agent_loaded: 1, done: 1 };
+
+// the listener is attached — the buffered events can be replayed now
+vscode.postMessage({ type: 'ui_ready' });
+
+window.addEventListener('message', (ev) => {
+  // In a browser only the host's own events count: anything another window
+  // posts here is not from the agent.
+  if (BROWSER && ev.origin !== 'execai-host') return;
+  const e = ev.data;
+  if (!e || typeof e.type !== 'string') return;
+  if (viewAgent && LOG_ONLY[e.type]) return;
+  switch (e.type) {
+    case 'ready': {
+      // A new agent process has a fleet of its own; it reports it when asked.
+      agentsData = null;
+      renderAgents();
+      refreshTabs();
+      clearBusy();
+      clearEmpty();
+      stateData.model = e.model || ''; stateData.source = e.source || '';
+      renderStatus();
+      log.appendChild(el('div', 'notice', T.agentReady + (e.model || '') + ' · ' + (e.source || '')));
+      break;
+    }
+    case 'turn_start':
+      document.body.classList.add('busy');
+      startTimer();
+      break;
+    case 'reasoning_delta': {
+      if (!curThinking) {
+        curThinking = el('div', 'msg thinking');
+        const t = el('div', 'thinking-toggle', T.thinkingClosed);
+        t.onclick = () => {
+          curThinkingBody.classList.toggle('open');
+          t.textContent = curThinkingBody.classList.contains('open') ? T.thinkingOpen : T.thinkingClosed;
+        };
+        var curThinkingBody = el('div', 'thinking');
+        curThinking.appendChild(t);
+        curThinking.appendChild(curThinkingBody);
+        curThinking._body = curThinkingBody;
+        curThinking.classList.add('live');
+        log.appendChild(curThinking);
+      }
+      curThinking._body.textContent += e.text || '';
+      scroll();
+      break;
+    }
+    case 'text_delta': {
+      if (curThinking) curThinking.classList.remove('live');
+      // MiniMax-class models send a trailing "</think>" as the first line — hide it.
+      let t = e.text || '';
+      const a = assistant();
+      // Keep the raw text aside and re-render the whole block: markdown cannot
+      // be appended piecewise — a table only becomes a table together with its
+      // divider row, and that arrives in a later token.
+      a._md = (a._md || '') + t;
+      a._md = a._md.replace(/^\s*<\/think>\s*/, '');
+      a.innerHTML = renderMarkdown(a._md);
+      scroll();
+      break;
+    }
+    case 'tool_call': {
+      curAssistant = null; curThinking = null;
+      const box = el('div', 'tool');
+      const head = el('div', 'tool-head');
+      head.appendChild(el('span', 'tool-name', e.tool || ''));
+      head.appendChild(el('span', 'tool-sum', e.summary || ''));
+      const state = el('span', 'tool-state');
+      state.appendChild(el('span', 'spin'));
+      head.appendChild(state);
+      box.classList.add('run');
+      const out = el('div', 'tool-out', '');
+      head.onclick = () => box.classList.toggle('open');
+      box.appendChild(head); box.appendChild(out);
+      log.appendChild(box);
+      tools[e.id] = { box, out, state };
+      scroll();
+      break;
+    }
+    case 'tool_chunk': {
+      const t = tools[e.id]; if (!t) break;
+      t.out.textContent += e.chunk || '';
+      break;
+    }
+    case 'tool_result': {
+      const t = tools[e.id]; if (!t) break;
+      t.box.classList.remove('run');
+      t.state.textContent = e.ok ? '✓' : '✗';
+      if (!t.out.textContent) t.out.textContent = e.tail || '';
+      break;
+    }
+    case 'ask': addAsk(e, true); break;
+    case 'ask_user': addAsk(e, false); break;
+    case 'ask_resolved': {
+      // The question is closed and its buttons here would answer nothing.
+      // by=panel: it was answered here — nothing to add, just disable it.
+      // by=web: answered on the site first; anything else: withdrawn (the
+      // turn stopped or timed out) — the box goes and a line says which.
+      const id = e.ask_id || e.id || '';
+      const box = asks[id];
+      delete asks[id];
+      if (!box || box.classList.contains('answered') || !box.parentElement) break;
+      if (e.by === 'panel') { box.classList.add('answered'); break; }
+      box.parentElement.insertBefore(el('div', 'notice', e.by === 'web' ? T.askResolved : T.askCancelled), box);
+      box.remove();
+      scroll();
+      break;
+    }
+    case 'inbox':
+      inboxData = e.state ? e : null;
+      renderStatus();
+      if (menuView === 'root') menuRoot();
+      break;
+    case 'files_changed': {
+      const wrap = el('div', 'files');
+      wrap.appendChild(el('span', '', '📝'));
+      for (const p of e.paths || []) {
+        const chip = el('span', '', p);
+        if (!BROWSER) chip.onclick = () => vscode.postMessage({ type: 'open_file', path: p });
+        wrap.appendChild(chip);
+      }
+      log.appendChild(wrap);
+      scroll();
+      break;
+    }
+    case 'done':
+      document.body.classList.remove('busy');
+      stopTimer();
+      for (const t of Object.values(tools)) t.box.classList.remove('run');
+      if (curThinking) curThinking.classList.remove('live');
+      // Copy buttons go on once the answer is complete: during streaming the
+      // markdown is half-parsed and the block boundaries still move.
+      if (curAssistant) decorate(curAssistant);
+      curAssistant = null; curThinking = null;
+      // A chat gets its title from the first exchange, and there is no event
+      // for that — ask for the list again when a turn ends.
+      refreshTabs();
+      break;
+    case 'studio':
+      isStudio = true;
+      break;
+    case 'files_attached':
+      addAttachments(e.items || (e.paths || []).map(p => ({ path: p, label: p })));
+      break;
+    case 'context_attached': {
+      // A muted line under the message that just went out: what the extension
+      // quietly added from the editor, so the chat never knows more than the eye.
+      const bubbles = log.querySelectorAll('.msg.user');
+      const last = bubbles[bubbles.length - 1];
+      if (last) last.appendChild(el('div', 'ctxline', '📎 ' + (e.text || '')));
+      scroll();
+      break;
+    }
+    case 'chat_flags':
+      chatFlags = e.flags || {};
+      renderTabs();
+      break;
+    case 'auto_user': {
+      clearEmpty();
+      // A task from the site opens its chat the way a wake-up does, but under
+      // its own caption. The agent tags it with origin; without the tag, the
+      // first turn of a chat known to be from the site is that task.
+      const web = e.origin === 'web' ||
+        (!e.origin && isWebChat(e.chat) && !log.querySelector('.msg.user'));
+      log.appendChild(el('div', 'msg user auto' + (web ? ' web' : ''),
+        (web ? '🌐 ' + T.webTurn : '🌙 ' + T.autoTurn) + (e.text || '')));
+      scroll();
+      break;
+    }
+    case 'wakeup':
+      log.appendChild(wakeLine(e.at || '', e.text || ''));
+      scroll();
+      break;
+    case 'wakeup_cancelled':
+      for (const w of log.querySelectorAll('.wake')) w.remove();
+      log.appendChild(el('div', 'notice', T.wakeCancelled));
+      scroll();
+      break;
+    case 'queued':
+      log.appendChild(el('div', 'notice', T.queued));
+      scroll();
+      break;
+    case 'chat_reset':
+      leaveAgentView();
+      shownChat = e.chat || null;
+      // Switching chats: the busy state belongs to the chat we are leaving.
+      clearBusy();
+      log.innerHTML = '';
+      tools = {}; asks = {}; curAssistant = null; curThinking = null;
+      log.appendChild(el('div', 'notice', T.newChatNotice));
+      refreshTabs();
+      break;
+    case 'tabs_state': {
+      try {
+        const st = JSON.parse(e.text || '{}');
+        tabsHidden = Array.isArray(st.hidden) ? st.hidden : [];
+        tabsOrder = Array.isArray(st.order) ? st.order : [];
+        agentsCollapsed = !!st.agents_collapsed;
+      } catch (err) { /* first run — defaults are fine */ }
+      renderTabs();
+      renderAgents();
+      break;
+    }
+    case 'agents': {
+      agentsData = Array.isArray(e.items) ? e.items.filter(a => a && a.id) : [];
+      for (const id of Object.keys(agentsStopping)) {
+        const r = agentRecord(id);
+        if (!r || !(r.state === 'queued' || r.state === 'running' || r.state === 'waiting')) delete agentsStopping[id];
+      }
+      for (const t of agentTabs) {
+        const r = agentRecord(t.id);
+        if (r && r.title) t.title = r.title;
+      }
+      // The transcript on screen follows its subagent while it works.
+      if (viewAgent && !pendingAgent && !agentReloading) {
+        const r = agentRecord(viewAgent);
+        if (r && r.updated_at && r.updated_at !== viewAgentStamp) {
+          viewAgentStamp = r.updated_at;
+          agentReloading = true;
+          vscode.postMessage({ type: 'agent_command', name: 'open_agent', value: viewAgent });
+        }
+      }
+      renderAgents();
+      renderTabs();
+      break;
+    }
+    case 'agent_loaded': {
+      // Only what this panel asked for: in a browser every tab gets every
+      // event, and another tab's transcript must not take this one over.
+      const want = pendingAgent ? e.id === pendingAgent : e.id === viewAgent;
+      if (!e.id || !want) break;
+      const fresh = e.id !== viewAgent;
+      const atEnd = fresh || log.scrollTop + log.clientHeight >= log.scrollHeight - 40;
+      // Open questions stay answerable across the redraw.
+      const keep = Object.keys(asks).map(id => [id, asks[id]])
+        .filter(p => p[1] && !p[1].classList.contains('answered'));
+      pendingAgent = null;
+      agentReloading = false;
+      viewAgent = e.id;
+      if (fresh) { const r = agentRecord(e.id); viewAgentStamp = r && r.updated_at ? r.updated_at : ''; }
+      const tab = agentTabs.find(a => a.id === e.id);
+      if (!tab) agentTabs.push({ id: e.id, title: e.title || e.id });
+      else if (e.title) tab.title = e.title;
+      document.body.classList.add('agentview');
+      log.innerHTML = '';
+      tools = {}; asks = {}; curAssistant = null; curThinking = null;
+      log.appendChild(el('div', 'notice agent-head', '🤖 ' + (e.title || e.id) +
+        (e.state ? ' · ' + agentStateLabel(e.state) : '')));
+      renderHistory(e.messages, false);
+      if (e.error) log.appendChild(el('div', 'error', e.error));
+      for (const p of keep) { log.appendChild(p[1]); asks[p[0]] = p[1]; }
+      for (const a of log.querySelectorAll('.msg.assistant')) decorate(a);
+      if (atEnd) scroll();
+      renderTabs();
+      renderAgents();
+      break;
+    }
+    case 'chats':
+      chatsData = e.chats || [];
+      if (menuView === 'chats') menuChats();
+      renderTabs();
+      break;
+    case 'chat_loaded': {
+      leaveAgentView();
+      if (e.chat) shownChat = e.chat;
+      // The chat we are leaving may still be busy — that is its state, not ours.
+      // If the loaded chat is busy, the agent replays its turn right after this.
+      clearBusy();
+      log.innerHTML = '';
+      tools = {}; asks = {}; curAssistant = null; curThinking = null;
+      // The opening message of a chat from the site is the task itself.
+      renderHistory(e.msgs, e.origin === 'web' || isWebChat(e.chat));
+      log.appendChild(el('div', 'notice', T.chatRestored));
+      if (e.at) log.appendChild(wakeLine(e.at, e.text || ''));
+      scroll();
+      for (const a of log.querySelectorAll('.msg.assistant')) decorate(a);
+      refreshTabs();
+      break;
+    }
+    case 'state': {
+      const hadSub = !!stateData.subagentIter;
+      stateData = { model: e.model || '', source: e.source || '',
+                    models: e.models || [], sources: e.sources || [],
+                    efforts: e.efforts || [], connectable: e.connectable || [],
+                    securities: e.securities || [], security: e.security || '',
+                    user: e.user || '', effort: e.effort || '', maxIter: e.max_iter || 0,
+                    subagentIter: e.subagent_iter || 0 };
+      renderStatus();
+      // The +25 buttons come and go with subagent_iter.
+      if (agentsData && hadSub !== !!stateData.subagentIter) renderAgents();
+      // redraw whichever menu view is open with the hot data
+      if (menuView === 'root') menuRoot();
+      else if (menuView) menuList(menuView);
+      break;
+    }
+    case 'login_start': {
+      // The browser opens by itself, but the link must survive on its own:
+      // over SSH or on a headless box nothing opens, and the sign-in may
+      // happen in a browser on another machine entirely.
+      const n = el('div', 'notice');
+      n.appendChild(el('div', undefined, T.loginConfirm + (e.id ? T.loginCode + e.id : '')));
+      n.appendChild(el('code', 'login-link', e.text || ''));
+      const copy = el('button', 'login-copy', T.loginCopy);
+      copy.onclick = () => {
+        vscode.postMessage({ type: 'copy_text', text: e.text || '' });
+        copy.textContent = T.loginCopied;
+        setTimeout(() => { copy.textContent = T.loginCopy; }, 1500);
+      };
+      n.appendChild(copy);
+      log.appendChild(n);
+      scroll();
+      break;
+    }
+    case 'login_done':
+      log.appendChild(el('div', 'notice', T.signedIn + (e.text || '')));
+      scroll();
+      break;
+    case 'notice': log.appendChild(el('div', 'notice', e.text || '')); scroll(); break;
+    case 'error': log.appendChild(el('div', 'error', e.text || '')); scroll(); break;
+    case 'agent_exit': {
+      document.body.classList.remove('busy');
+      stopTimer();
+      const box = el('div', 'error', e.text || T.agentExited);
+      if (!BROWSER) {
+        const b = document.createElement('button');
+        b.textContent = T.restartBtn;
+        b.style.marginTop = '4px';
+        b.onclick = () => { vscode.postMessage({ type: 'restart' }); box.remove(); };
+        box.appendChild(document.createElement('br'));
+        box.appendChild(b);
+      }
+      log.appendChild(box);
+      scroll();
+      break;
+    }
+    case 'machine_state':
+      // A late answer still wins over "update the agent".
+      if (e.unsupported) { if (!machineData) machineOld = true; }
+      else { machineOld = false; machineData = e; }
+      renderStart();
+      renderMachine();
+      break;
+    case 'machine_clear':
+      // The agent is gone: what it said about the machine is no longer news.
+      machineData = null; machineOld = false; startQr = false; machineQr = false;
+      renderStart();
+      renderMachine();
+      break;
+    case 'machine_toggle':
+      machineOpen = !machineOpen;
+      machineQr = false;
+      renderMachine();
+      renderStart();
+      break;
+    case 'start_prefs':
+      startDismissed = !!e.dismissed;
+      if (startDismissed) startForced = false;
+      renderStart();
+      break;
+    case 'start_show':
+      startDismissed = false;
+      startForced = true;
+      machineOpen = false; // one card at a time
+      renderMachine();
+      renderStart();
+      break;
+    case 'prefill':
+      inp.value = (e.text || '') + inp.value;
+      inp.focus();
+      break;
+  }
+  if (START_EVENTS[e.type]) renderStart();
+});
+</script>
+</body>
+</html>
