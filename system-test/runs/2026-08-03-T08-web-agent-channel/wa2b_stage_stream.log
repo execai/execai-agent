@@ -1,0 +1,72 @@
+data: {"type": "session_init", "cid": "bfdd8941-c2ad-4151-82aa-28ad8a5d9301"}
+
+data: {"type": "message_id", "id": "3573"}
+
+data: {"type": "iteration_init", "iid": "8a4ae1c2-e163-4f1a-a313-7fc37146f4cb"}
+
+data: {"type": "iteration_init", "iteration_id": "aec38479-6ac3-4771-96fd-b347d4b92f3b"}
+
+data: {"type": "reasoning_delta", "content": "\nПользователь просит узнать у агента на"}
+
+data: {"type": "reasoning_delta", "content": " машине версию ОС и свободное место на диске, затем пересказать ответ. Нужно вызвать функцию"}
+
+data: {"type": "reasoning_delta", "content": "run_on_agent."}
+
+data: {"type": "reasoning_delta", "content": "\n"}
+
+data: {"type": "reasoning_done"}
+
+data: {"type": "text_delta", "content": "\n\n</think>"}
+
+data: {"type": "tool_call", "id": "call_019fc557a09379e3b3440d17", "name": "run_on_agent", "arguments": {"task": "Покажи версию ОС (например, через uname -a или cat /etc/os-release) и объём свободного места на диске (например, через df -h). Дай краткий итог по обоим пунктам.", "agent": "dfab71ab-e321-43bf-9c7c-0f45bb6a0291"}}
+
+data: {"type": "tool_output_delta", "id": "call_019fc557a09379e3b3440d17", "content": "401 от /aicore-vbai — {\"error\":\"No authorization header provided\"}"}
+
+data: {"type": "tool_result", "id": "call_019fc557a09379e3b3440d17", "status": "success", "content": "401 от /aicore-vbai — {\"error\":\"No authorization header provided\"}"}
+
+data: {"type": "text_delta", "content": "К сожалению, при попытке выполнить задачу через удалённого агента сервис вернул ошибку авторизации (`401 No authorization header provided`). Это значит, что"}
+
+data: {"type": "text_delta", "content": " запрос к агенту не прошёл — у меня нет действующего токена/прав на вызов этой"}
+
+data: {"type": "text_delta", "content": " интеграции.\n\nЧто это значит для вас:\n- Я не получил никакой"}
+
+data: {"type": "text_delta", "content": " информации о машине: ни"}
+
+data: {"type": "text_delta", "content": " версии ОС, ни"}
+
+data: {"type": "text_delta", "content": " данных о свободном месте на диске.\n- Пересказывать нечего — реаль"}
+
+data: {"type": "text_delta", "content": "ного ответа от агента не поступало.\n\nЧ"}
+
+data: {"type": "text_delta", "content": "то можно сделать, чтобы получи"}
+
+data: {"type": "text_delta", "content": "ть ответ:\n1. Проверить, что у"}
+
+data: {"type": "text_delta", "content": " вас активна сессия/токен для интеграции с агентом на"}
+
+data: {"type": "text_delta", "content": " этой машине (агент `dfab71ab-e321-43bf-9c7c-0f45bb6a0291`).\n2. Если т"}
+
+data: {"type": "text_delta", "content": "окен привязан к аккаунту — пере"}
+
+data: {"type": "text_delta", "content": "авторизоваться (выйти/зайти)"}
+
+data: {"type": "text_delta", "content": " и повторить запрос.\n3. Если у вас есть альтернативный способ"}
+
+data: {"type": "text_delta", "content": " вызвать агента (CLI, веб-консоль) — запустите там, например:\n  "}
+
+data: {"type": "text_delta", "content": " - `uname -a`\n   - `cat /etc/os-release`\n   - `df -h`\n\nКак"}
+
+data: {"type": "text_delta", "content": " только авторизация восстанови"}
+
+data: {"type": "text_delta", "content": "тся — пришлите запрос"}
+
+data: {"type": "text_delta", "content": " ещё раз, и я с"}
+
+data: {"type": "text_delta", "content": "разу же вызову агента и перескажу его"}
+
+data: {"type": "text_delta", "content": " ответ."}
+
+data: {"type": "done", "usage": {"total_tokens": 2279, "total_characters": 0, "prompt_tokens": 1957, "completion_tokens": 322, "completion_tokens_details": {"reasoning_tokens": 0}, "prompt_tokens_details": {"cached_tokens": 1792}}}
+
+data: [AICORE_DONE]
+

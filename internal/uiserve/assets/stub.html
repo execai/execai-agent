@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<!--
+  Stand-in page of the execai ui contract, served until the browser build of
+  the editor panel (vscode-vbai dist/panel-browser.{en,ru}.html) is copied
+  here by scripts/sync-panel.sh. It shows the raw event stream and can send a
+  message, stop a turn and answer a question — enough to check the transport.
+-->
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'nonce-{{NONCE}}'; connect-src 'self';">
+<title>ExecAI</title>
+<style>
+  :root { color-scheme: light dark; --bg: #fff; --fg: #1f1f1f; --muted: #6b6b6b; --line: #ddd; --accent: #0b6bcb; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1e1e1e; --fg: #e6e6e6; --muted: #9a9a9a; --line: #3a3a3a; --accent: #4aa3ff; } }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+  header { padding: 8px 16px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+  #log { flex: 1; overflow: auto; padding: 12px 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .ev { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .err { color: #d33; }
+  .ask button { margin: 4px 6px 0 0; }
+  form { display: flex; gap: 8px; padding: 8px 16px 16px; border-top: 1px solid var(--line); }
+  textarea { flex: 1; min-height: 3em; font: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px; }
+  button { font: inherit; background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+</style>
+</head>
+<body>
+<header id="head"></header>
+<div id="log"></div>
+<form id="form">
+  <textarea id="text"></textarea>
+  <button type="submit" id="send"></button>
+  <button type="button" id="stop"></button>
+</form>
+<script nonce="{{NONCE}}">
+(function () {
+  var CONFIG = {{CONFIG}};
+  var ru = CONFIG.lang === 'ru';
+  var T = ru ? { send: 'Отправить', stop: 'Стоп', stub: 'временная страница: сборка панели ещё не встроена', lost: 'связь с агентом потеряна — переподключаюсь…' }
+             : { send: 'Send', stop: 'Stop', stub: 'stand-in page: the panel build is not embedded yet', lost: 'lost the agent — reconnecting…' };
+  var log = document.getElementById('log');
+  document.getElementById('send').textContent = T.send;
+  document.getElementById('stop').textContent = T.stop;
+  document.getElementById('head').textContent = 'execai ' + CONFIG.version + ' · ' + CONFIG.cwd + ' · ' + T.stub;
+
+  // The transport the panel build uses as well: POST /in out, EventSource in.
+  window.execaiHost = {
+    postMessage: function (msg) {
+      return fetch('/in', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(msg) });
+    }
+  };
+  var activeChat = '';
+  function line(text, cls) {
+    var d = document.createElement('div');
+    if (cls) d.className = cls;
+    d.textContent = text;
+    log.appendChild(d);
+    log.scrollTop = log.scrollHeight;
+    return d;
+  }
+  var stream = null;
+  function onEvent(o) {
+    if (o.chat) activeChat = o.chat;
+    switch (o.type) {
+      case 'text_delta':
+        if (!stream) stream = line('');
+        stream.textContent += o.text || '';
+        log.scrollTop = log.scrollHeight;
+        return;
+      case 'ask': case 'ask_user':
+        stream = null;
+        var box = line(o.question || '', 'ask');
+        (o.options || []).forEach(function (opt) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.textContent = opt.label;
+          b.addEventListener('click', function () {
+            window.execaiHost.postMessage({ type: 'answer', id: o.id, value: opt.value });
+            box.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
+          });
+          box.appendChild(document.createElement('br'));
+          box.appendChild(b);
+        });
+        return;
+      case 'error':
+        stream = null;
+        line(o.text || 'error', 'err');
+        return;
+      case 'notice':
+        stream = null;
+        line(o.text || '', 'ev');
+        return;
+      case 'tool_call':
+        stream = null;
+        line('▸ ' + (o.tool || '') + ' ' + (o.summary || ''), 'ev');
+        return;
+      case 'done':
+        stream = null;
+        line('— ' + o.type, 'ev');
+        return;
+      default:
+        stream = null;
+        line(JSON.stringify(o), 'ev');
+    }
+  }
+  var es = new EventSource('/events');
+  es.onmessage = function (e) {
+    try { onEvent(JSON.parse(e.data)); } catch (err) { line(String(err), 'err'); }
+  };
+  es.onerror = function () { line(T.lost, 'err'); };
+
+  document.getElementById('form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var t = document.getElementById('text');
+    if (!t.value.trim()) return;
+    line('> ' + t.value);
+    stream = null;
+    window.execaiHost.postMessage({ type: 'user', text: t.value, chat: activeChat });
+    t.value = '';
+  });
+  document.getElementById('stop').addEventListener('click', function () {
+    window.execaiHost.postMessage({ type: 'stop', chat: activeChat });
+  });
+  window.execaiHost.postMessage({ type: 'command', name: 'state' });
+}());
+</script>
+</body>
+</html>
