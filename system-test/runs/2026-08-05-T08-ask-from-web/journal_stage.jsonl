@@ -1,0 +1,9 @@
+{"step": "wa12-once-question-visible", "verdict": "PASS", "detail": "инструмент=Bash summary=Bash: touch /tmp/wa12-allowed && echo done — Созда"}
+{"step": "wa12-once-options-shipped", "verdict": "PASS", "detail": "варианты=['once', 'session', 'always', 'deny']"}
+{"step": "wa12-once-effect", "verdict": "PASS", "detail": "output/9.1s keepalives=1 файл=создан: \n\n</think>Готово — `/tmp/wa12-allowed` создан, вывод `done`."}
+{"step": "wa3-off", "verdict": "PASS", "detail": "error/0.1s: агент выключен в этом проекте — включи тумблер в настройках проекта"}
+{"step": "wa3-on", "verdict": "PASS", "detail": "output/2.1s: \n\nWA3-OK"}
+{"step": "wa5b-offline-verdict", "verdict": "PASS", "detail": "error/12.1s task=63bf44f1"}
+{"step": "wa5b-foreign-result-403", "verdict": "PASS", "detail": "HTTP 403: {\"error\":\"задача адресована другой машине\"}\n"}
+{"step": "wa2-stage", "verdict": "FAIL", "detail": "вызовов=3 финал=  </think>  Агент не успел завершить за отведённое время. Попробую ещё раз.  Агент снова н"}
+{"step": "wa2-stage", "verdict": "PASS", "detail": "вызовов=1 финал=  сию ОС.</think>  Агент ответил: на машине установлена **Debian GNU/Linux 13 (trixie)**, версия 13."}

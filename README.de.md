@@ -1,0 +1,852 @@
+[English](README.md) | [Русский](README.ru.md) | [Español](README.es.md) | **Deutsch** | [中文](README.zh.md)
+
+🌐 **Website:** [execai.ru](https://execai.ru) · 💬 Web-Chat: [chat.execai.ru](https://chat.execai.ru) · 🖥 Editor: [ExecAI Studio](https://github.com/execai/execai-studio)
+
+---
+
+# execai — ein Terminal-KI-Agent
+
+execai ist ein Terminal-first KI-Coding-Agent, der mit deinen Lieblings-LLM-Anbietern zusammenarbeitet (Claude, GPT-5, Kimi K3, GLM-5.2 und mehr) — bring dein eigenes Abo mit oder nutze unseres. Ein CLI-Agent im Geist von Claude Code, der wirklich auf deiner Maschine läuft: er liest Dateien, führt Befehle aus, redet mit Kubernetes und antwortet dir im Chat. Er unterstützt **12 Quellen** — unser ExecAI-Backend + deine Abonnements bei Z.ai / Kimi Code / Anthropic / OpenAI + lokale Claude Code / OpenAI Codex CLI / Ollama (Cloud oder lokal). Du kannst spontan zwischen ihnen wechseln, mit gemeinsam genutztem Conversation-History. Dazu **jede eigene OpenAI- oder Anthropic-kompatible Adresse** (LM Studio, vLLM, LiteLLM, ein Firmen-Gateway…). Die Modellliste jeder Quelle kommt vom Anbieter selbst, nicht aus einer im Agenten eingebauten Liste.
+
+```
+execai R6.78 · openai/gpt-5 · it@execai.ru · ~
+Type a task. /model — models, /help — commands, /quit — exit.
+
+› check free disk space on server dev01
+```
+
+![demo](scripts/demo.gif)
+
+![execai ui — der Chat in einem eigenen Fenster](docs/ui-demo-en.gif)
+
+*`execai ui` — derselbe Chat in einem eigenen Fenster: drei Designs, hell und dunkel — [Anleitung](docs/en/ui.md).*
+
+> **ℹ Ein ExecAI-Konto und -Plan sind nur für die ExecAI-Modelle nötig** (Quelle `execai`; jeder Plan, die ersten 3 Tage kosten 1 ₽) — und in den Plänen Work und Max für den Sync (später auch für die Web-Konsole). Eigene Anbieter-Schlüssel (`/connect zai|kimi|openai|anthropic|openrouter|custom <key>`, lokale `claude-cli` / `codex-cli`) und lokale Modelle (`/source ollama`) funktionieren ohne Konto; die Schlüssel verlassen deinen Rechner nie. Plan abschließen: [execai.ru](https://execai.ru).
+
+**Ink-style rendering** (Standard seit R5.107): der Message-History wird in den Terminal-Scrollback committet (native Textauswahl funktioniert und wird bei Updates nicht zurückgesetzt). Live-Streaming und Eingabe leben in einem dynamischen Bereich am unteren Rand. Genau wie Claude Code.
+
+---
+
+## Inhalt
+
+1. [Neu in Version 7](#neu-in-version-7)
+1. [Installation](#installation)
+2. [Erster Start](#erster-start)
+3. [Mit dem Agent sprechen](#mit-dem-agent-sprechen)
+4. [Sources — ExecAI und Abonnements](#sources--execai-und-abonnements)
+5. [Modelle](#modelle)
+6. [Bilder und Dateien](#bilder-und-dateien)
+7. [Effort — Reasoning-Level](#effort--reasoning-level)
+8. [Loop und Autoloop — wiederholen und warten](#loop-und-autoloop--wiederholen-und-warten)
+9. [Agent-Memory (EXECAI/MEMORY.md)](#agent-memory)
+10. [Projekte und Hintergrundmodus — Web → Agent](#projekte-und-hintergrundmodus--web--agent)
+11. [Ausgaben / `/usage`](#ausgaben--usage)
+12. [Befehle und Hotkeys](#befehle-und-hotkeys)
+13. [Sessions und Verlauf](#sessions-und-verlauf)
+14. [Wo die Dateien liegen](#wo-die-dateien-liegen)
+15. [Troubleshooting](#troubleshooting)
+
+---
+
+## Installation
+
+### Linux / macOS (Intel und Apple Silicon)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | bash
+```
+
+Die Binaries kommen standardmäßig von **GitHub Releases**. In Russland/GUS ist der Yandex-Spiegel meist deutlich schneller — das Skript wählt ihn für `ru`-Locales automatisch, oder erzwinge ihn:
+
+```bash
+curl -fsSL https://storage.yandexcloud.net/execai-agent-prod/execai/stable/install.sh | MIRROR=yandex bash
+```
+
+Die Binaries kommen standardmäßig von **GitHub Releases**. In Russland/GUS ist der Yandex-Mirror meist deutlich schneller — das Skript wählt ihn für `ru`-Locales automatisch, oder erzwinge ihn mit `MIRROR=yandex`.
+
+Das Skript wird:
+- deine Architektur erkennen (`linux-amd64`, `linux-arm64`, `darwin-amd64`, `darwin-arm64`),
+- die SHA256 verifizieren,
+- die Binary nach `/usr/local/bin/execai` (mit passwortlosem sudo) oder `~/.local/bin/execai` legen,
+- veraltete execai-Kopien aus dem PATH und tote/`/tmp/execai*`-Einträge aus deinen rc-Dateien entfernen,
+- unter macOS automatisch `com.apple.quarantine` entfernen (Gatekeeper).
+
+Nach der Installation — in einem **neuen Terminal** einfach `execai` eintippen. Im aktuellen Terminal — falls du `execai` schon hattest und bash den alten Pfad gecacht hat, hilft `hash -r`.
+
+### Windows 10/11 (amd64 und ARM64)
+
+```powershell
+iwr -useb https://storage.yandexcloud.net/execai-agent-prod/execai/stable/install.ps1 | iex
+```
+
+Erkennt die Architektur automatisch (amd64 / arm64 für Copilot+ PCs), fragt einmalig nach **UAC**, um den Ordner zu Defenders Ausnahmen hinzuzufügen (sonst kann das Antivirus die Binary fressen), lädt `execai.exe` nach `%LOCALAPPDATA%\execai\` herunter und registriert es im User-PATH.
+
+> Starte es aus **Windows Terminal** (nicht dem alten `cmd.exe`/conhost) — die TUI (bubbletea) rendert dort korrekt.
+
+Nach der Installation prüfen:
+```bash
+execai version
+# execai R7.NN
+```
+
+### Eine bestimmte Version pinnen
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/execai/execai-agent/main/install.sh | VERSION=7.2 bash
+```
+
+### Manueller Download
+
+Wenn du das Binary lieber selbst holst statt den Installer laufen zu lassen — alle Releases mit Checksums liegen auf GitHub:
+
+**https://github.com/execai/execai-agent/releases/latest**
+
+Wähle das Archiv für deine Plattform (`execai-{linux,darwin,windows}-{amd64,arm64}.{tar.gz,zip}`), prüfe gegen `SHA256SUMS`, entpacke es und lege es in den PATH.
+
+---
+
+## Erster Start
+
+```bash
+execai
+```
+
+Ohne Argumente öffnet sich die Chat-TUI.
+
+**Falls du noch nicht eingeloggt bist** — der Agent zeigt dir einen Bestätigungslink für den Browser und öffnet ihn automatisch:
+
+```
+👉 Open in your browser and confirm this is your agent:
+   https://chat.execai.ru/agents/connect/U7XQ9F4P
+
+(waiting, polling every 3s… once you confirm, we continue)
+```
+
+Im Browser:
+1. Falls du nicht bei ExecAI eingeloggt bist — melde dich an (Yandex / VK / E-Mail).
+2. Auf der Seite "Connect agent" ist das Alias-Feld mit deinem Hostname vorausgefüllt. Übernimm es oder überschreib es (z. B. "yz-laptop"). Klick auf "Confirm".
+
+Der Agent bekommt ein JWT und macht sofort weiter. Das Token lebt 90 Tage und erneuert sich bei jedem Connect automatisch.
+
+Beim ersten Start zeigt der Chat **„Erste Schritte“** — fünf Schritte (Anmelden, Modelle, Sync, einen Ordner an ein Web-Projekt binden, Aufruf vom Handy), jeweils als erledigt markiert oder nicht. `/start` zeigt sie wieder, `/machine` — die Karte „Meine Maschine“, `/phone` — ein QR-Code, um diese Maschine vom Handy aus zu rufen — [Anleitung](docs/en/start.md).
+
+### Was ein persistenter Agent ist
+
+Jeder Agent ist an eine **stabile host-id** auf deiner Maschine gebunden:
+- Linux — `/etc/machine-id`
+- macOS — `IOPlatformUUID`
+- Windows — `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid`
+- Fallback — `~/.config/execai/host_id` (UUID, beim ersten Install generiert)
+
+Das heißt: wenn du execai neu installierst, `credentials.json` löschst und dich erneut einloggst — **verwendet das Backend die bestehende Session weiter**, die agent_id bleibt gleich. Keine Duplikate in deiner Geräteliste.
+
+Du kannst alle deine Agenten anzeigen und einzelne entkoppeln unter `chat.execai.ru/settings/agents` (im UserMenu unten links → "Agents", Terminal-Icon).
+
+---
+
+## Mit dem Agent sprechen
+
+Beschreib deine Aufgabe einfach in normaler Sprache:
+
+```
+› check how much space /var/log takes on server dev01
+```
+
+Der Agent wird:
+- rausfinden, was du brauchst,
+- entscheiden, welches Tool er nutzt (Bash, Read, Grep, …),
+- dir den Befehl vor der Ausführung zeigen und um Bestätigung bitten, falls er gefährlich ist,
+- ihn ausführen, das Ergebnis lesen und antworten.
+
+### Gefährliche Befehle bestätigen
+
+Read-only-Sachen (`ls`, `cat`, `git status`, `kubectl get`, `grep`) laufen automatisch. Befehle, die den Zustand ändern (`rm`, `>`, `chmod`, `kubectl delete`, `git push`), fragen nach:
+
+```
+⚠  Confirm Bash execution
+   kubectl delete pod foo-xxx
+   
+   [y] Once  [a] All Bash this session  [s] This command this session  [f] FOREVER  [n] Deny
+```
+
+| Taste | Bedeutung |
+|---|---|
+| **y** | EINMAL erlauben |
+| **a** | ALLE Bash-Aufrufe erlauben, bis execai neu startet |
+| **s** | Genau diesen Befehl (mitsamt Argumenten) bis zum Neustart erlauben |
+| **f** | FÜR IMMER erlauben (persistiert in `~/.config/execai/permissions.json`) |
+| **n** oder Esc | Ablehnen — der Agent bekommt "user refused" zurück |
+
+Navigation: ← → oder Tab zum Fokus wechseln, Enter zum Bestätigen, oder die Shortcuts `y/a/s/f/n`.
+
+### Eingebaute Tools
+
+| Tool | Was es macht |
+|---|---|
+| **Bash** | Führt einen Shell-Befehl mit Streaming-Ausgabe aus (Zeilen erscheinen, sobald sie produziert werden) |
+| **Read** | Liest eine Datei mit offset/limit, erkennt Binärdateien automatisch |
+| **Write** | Erstellt/überschreibt eine Datei (mit Bestätigung) |
+| **Edit** | Präzises String-Replacement in einer Datei (mit Bestätigung) |
+| **Grep** | Regexp-Suche über einen Datei-Baum |
+| **Glob** | Dateien nach Pattern wie `**/*.go` finden |
+| **LS** | Verzeichnis-Listing |
+| **Tree** | Datei-Baum bis Tiefe N |
+| **WebFetch** | Öffnet eine Seite: HTML → lesbarer Text + Links zum Weitergehen (kein JS) |
+| **WebSearch** | Websuche mit Antwort und Quellenangaben (ExecAI-Konto nötig) |
+| **AskUser** | Stellt eine Frage mit 2–4 Optionen, wenn die Entscheidung bei dir liegt |
+| **Task** | Übergibt eine Teilaufgabe an einen Subagenten: mehrere arbeiten parallel, nur lesend oder mit Bearbeitung |
+| **TaskWait** | Wartet auf Hintergrund-Subagenten und sammelt ihre Ergebnisse |
+| **TaskExtend** | Gibt einem Subagenten mehr Schritte oder setzt einen fort, der sein Limit erreicht hat |
+| **TodoWrite** | Interner Aufgaben-Planner des Agenten |
+| **schedule_wakeup** | Die KI plant ihr eigenes Aufwachen in N Sekunden (siehe [Autoloop](#loop-und-autoloop--wiederholen-und-warten)) |
+| **wait** | Wartet innerhalb des Zuges: N Sekunden oder bis ein Shell-Check gelingt (`until`, alle `interval` s geprüft; bis 30 Min.) |
+
+---
+
+## Sources — ExecAI und Abonnements
+
+Der Agent kann mit **12 verschiedenen Quellen** reden. Der Conversation-History wird geteilt — spontan wechseln, ohne Kontext zu verlieren.
+
+| Source | Was das ist | Abrechnung |
+|---|---|---|
+| **execai** (Standard) | Unser Gateway → eines von ~34 Modellen | ExecAI-Plan |
+| **zai** | Z.ai GLM Coding Plan direkt | Dein Z.ai-Abo |
+| **zai-api** | Z.ai open platform, Pay-per-Token — **derselbe Schlüssel wie beim Abo** | Pay-per-Token Z.ai |
+| **kimi** | Kimi Code Coding Plan (kimi.com/code) | Dein Kimi-Code-Abo |
+| **kimi-api** | Moonshot Platform pay-per-token | Pay-per-token Moonshot |
+| **anthropic** | Direkte Claude-API (sk-ant-...) | Pay-per-token Anthropic |
+| **openai** | Direkte OpenAI-API (sk-proj-...) | Pay-per-token OpenAI |
+| **openrouter** | OpenRouter — alle Anbieter mit einem Key (Claude, GPT, Gemini, DeepSeek, Qwen…) | Pay-per-Token OpenRouter |
+| **claude-cli** | Delegiert an dein lokales `claude`-CLI | Dein Claude Pro/Max/Team OAuth |
+| **codex-cli** | Delegiert an dein lokales `codex`-CLI | Dein ChatGPT Plus/Pro/Team OAuth |
+| **ollama** | Cloud (ollama.com) oder lokal (`ollama serve`) | Dein Abo / 0 ₽ lokal |
+| **custom** | Eigene Adresse: jeder OpenAI- oder Anthropic-kompatible Server — LM Studio, vLLM, llama.cpp, LiteLLM, DeepSeek, Groq, ein Firmen-Gateway… | So, wie dieser Server abrechnet |
+
+### Plan und Gate
+
+Ein ExecAI-Plan ist nur für die ExecAI-Modelle (Quelle `execai`) nötig: Vor jedem Aufruf eines solchen Modells — Chat-Zug, `/compact`, `execai run`, Aufgabe in `execai serve`, Zug im Editor-Panel — prüft der Agent den Plan (`GET /billing-vbai/my_plan`). Ohne Plan oder ohne Anmeldung wird das Modell nicht aufgerufen, und der Agent zeigt, wo man [einen Plan abschließt](https://chat.execai.ru/settings/payment). Jeder Plan zählt, die ersten 3 Tage kosten 1 ₽; ein reines Pay-as-you-go-Guthaben ist kein Plan. Alle eigenen Quellen — zai, zai-api, kimi, kimi-api, openai, anthropic, openrouter, claude-cli, codex-cli, eigener Anbieter, Ollama (lokal und Cloud) — funktionieren ohne Plan und ohne Anmeldung. `/plan` (oder `execai plan`) zeigt den Stand; die Antwort liegt in `plan.json`. Die Abrechnung wird nur gefragt, solange die ExecAI-Modelle die aktive Quelle sind (beim Start, täglich, nach einem 402, beim Wechsel zu `execai` und bei `/plan`), mit eigenen Schlüsseln nie; ohne Verbindung gilt die gespeicherte Antwort bis zu 7 Tage. `execai run` und der einfache REPL nutzen wie der Chat die aktive Quelle.
+
+### 1. ExecAI — Standard
+
+Nach dem Login nutzt der Agent unsere Abrechnung. Kein zusätzliches Setup.
+
+```
+src : ExecAI   provider : anthropic   model : claude-sonnet-4-6
+```
+
+### 2. Z.ai Coding Plan
+
+Dein eigenes Abo für $3-60/Monat → du greifst direkt auf GLM-5.2 zu, wir stellen nichts in Rechnung.
+
+1. Hol dir einen **Coding-Plan**-Key (nicht den normalen API-Key!):
+   - https://z.ai/manage-apikey/apikey-list → **Individual Coding Plan > Plan Overview**
+   - Team: https://z.ai/manage-apikey/coding-plan/team/my-plan
+
+   > ⚠️ Ein normaler API-Key wird pay-per-token abgerechnet, NICHT aus deinem Abo.
+
+2. `/connect zai sk-zai-XXXXX`
+3. `/source zai` → primäres Modell **GLM-5.2**
+
+### 3. Kimi Code Coding Plan
+
+Ein separates Produkt von Moonshot AI — ihr Claude-Code-Äquivalent mit eigenem Abo. Ihr Flaggschiff **K3** ist in jedem Plan verfügbar außer den untersten Stufen.
+
+1. Hol dir einen Key unter https://www.kimi.com/code/console (Bereich API keys).
+2. ```
+   /connect kimi sk-XXXXX
+   /source kimi
+   ```
+3. Dein Plan wird automatisch über `/coding/v1/models` erkannt — die Statuszeile zeigt `kimi (K3)`, `kimi (K3 + HighSpeed)` oder `kimi (K2.7 Code)`, je nachdem, was tatsächlich verfügbar ist.
+
+Modelle: `k3` (primär), `kimi-for-coding` (K2.7 Code), `kimi-for-coding-highspeed`. `/usage` zeigt dein **echtes Kontingent**: das Wochenlimit plus rolling windows (5h) mit Fortschrittsbalken.
+
+### 4. Moonshot Platform (pay-per-token API)
+
+Ein normaler API-Key für Per-Token-Abrechnung (kein Abo). Wenn du Moonshot-Modelle außerhalb von Kimi Code nutzen willst:
+
+1. Key unter https://platform.moonshot.ai/console/api-keys holen.
+2. ```
+   /connect kimi-api sk-XXXXX
+   /source kimi-api
+   ```
+
+Der Modell-Katalog wird dynamisch aus dem `/v1/models` deines Accounts gezogen. Primär → `kimi-latest` (Auto-Alias auf das aktuelle Flagship). Der Key wird beim `/connect` validiert — bei 401/403 gibt es sofort eine Ablehnung mit einem Hinweis, welcher Key wo hingehört.
+
+### 5. Anthropic API
+
+Direkter Key von https://console.anthropic.com/settings/keys — pay-per-token.
+
+```
+/connect anthropic sk-ant-XXXXX
+/source anthropic
+```
+Modelle: claude-sonnet-4-6, claude-opus-4-8, claude-haiku-4-5.
+
+### 6. OpenAI Platform (pay-per-token API)
+
+Direkter Key von https://platform.openai.com/api-keys — pay-per-token.
+
+```
+/connect openai sk-proj-XXXXX
+/source openai
+```
+
+Der Katalog wird aus dem `/v1/models` deines Accounts gezogen. Primär → **gpt-5** → o3 → gpt-4.1 → gpt-4o (Prioritätsreihenfolge).
+
+### 7. Claude Code CLI (Claude Pro/Max/Team OAuth)
+
+Wenn du bereits `claude` (Claude Code) installiert hast und ein **Pro/Max/Team**-Abo besitzt — nutze dessen Kontingent über die lokale OAuth-Session, ohne separaten Key.
+
+```
+/connect claude-cli    # prüft, ob `claude` im PATH ist
+/source claude-cli
+```
+
+Die Modelle werden bei `claude` selbst erfragt (dieselbe `initialize`-Anfrage wie im Claude Agent SDK — kostet keine Tokens): genau das, was dein Plan und deine CLI-Version bieten, mit den Namen von Claude Code. **Standard** läuft ohne `--model` — das Modell aus `claude config`.
+
+⚠️ **Einschränkungen:**
+- execai-Tools (Bash/Read/Write) funktionieren NICHT über claude-cli — es startet seine eigenen Tools mit eigenen Berechtigungen
+- Der History wird als Plaintext-Prompt übergeben (keine session-id)
+
+### 8. OpenAI Codex CLI (ChatGPT Plus/Pro/Team OAuth)
+
+Das `claude-cli`-Äquivalent für OpenAI. Nutzt dein ChatGPT-Abo-Kontingent (Plus/Pro/Team/Enterprise) über die lokale `codex`-Binary.
+
+**codex installieren** (Linux/macOS):
+```bash
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
+codex login    # OAuth im Browser mit deinem ChatGPT-Account
+```
+Windows:
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"
+```
+
+**In execai:**
+```
+/connect codex-cli
+/source codex-cli
+```
+
+Die Modelle werden bei `codex` selbst erfragt (`codex app-server` → `model/list`, wie die Codex-Editor-Erweiterung): genau das, was dein ChatGPT-Plan bietet, sein Standard zuerst. Gleiche Einschränkungen wie bei claude-cli — execai-Tools funktionieren nicht, codex startet seine eigenen.
+
+### 9. Ollama — Cloud oder lokal
+
+Zwei Modi unter einem Befehl:
+
+**Cloud (ollama.com):**
+```
+/connect ollama <api-key>          # Key von https://ollama.com/settings/keys
+/source ollama
+```
+Die Modellliste ist die deines Kontos (`/api/tags` mit deinem Key). Anthropic-kompatibler Endpoint, Effort wird unterstützt.
+
+**Lokal (dein eigenes Ollama):**
+```
+ollama pull llama3.2               # extern, was auch immer du laufen lassen willst
+/connect ollama local              # localhost:11434
+/connect ollama local http://192.168.1.10:11434   # deine eigene URL
+/source ollama
+```
+Der Katalog wird dynamisch über `/api/tags` gezogen. 0 ₽. OpenAI-kompatibler Endpoint.
+
+### 10. Eigener Anbieter — jede OpenAI- oder Anthropic-kompatible Adresse
+
+Ein lokaler LM-Studio- / vLLM- / llama.cpp-Server, LiteLLM, ein Firmen-Gateway, DeepSeek, Groq, Together, Mistral — alles, was eines der beiden Protokolle spricht.
+
+```
+/connect custom
+```
+fragt Schritt für Schritt: **Name** → **Schnittstellentyp** (1 — OpenAI-kompatibel `…/chat/completions`, 2 — Anthropic-kompatibel `…/v1/messages`) → **Adresse** (Base-URL) → **API-Key** (Enter für keinen). Die Modellliste kommt aus `/models` des Servers; gibt es keine, nennst du die Modell-IDs selbst. Esc bricht ab. Der Key bleibt auf deinem Rechner und landet nie im Eingabeverlauf.
+
+In einer Zeile — für Skripte und für alle, die die Antworten schon kennen:
+```
+/connect custom "LM Studio" openai http://localhost:1234/v1
+/connect custom deepseek openai https://api.deepseek.com sk-XXXXX
+/connect custom corp anthropic https://llm.corp.local sk-XXXXX --header "X-Tenant: dev"
+/connect custom vllm openai http://gpu-box:8000 --models qwen3-coder,llama-4
+```
+Aus dem Namen wird die ID der Quelle: `/source lm-studio`, `/disconnect lm-studio`. Eine vollständige Endpoint-URL aus der Doku geht auch — `/chat/completions` bzw. `/v1/messages` wird abgeschnitten; ob eine nackte Adresse `/v1` braucht, klärt der Agent beim Server. Ein Modell, das der Server nicht listet: `/model <id>` nimmt es wie eingegeben und merkt es sich. Effort/Thinking funktioniert bei Anthropic-kompatiblen. Im Editor-Panel gibt es denselben Ablauf: **Quelle verbinden → Eigener Anbieter**.
+
+### Zum Wechseln
+
+- **Der History wird geteilt.** `/source zai` → `/source execai` → `/source ollama` — der Kontext bleibt erhalten.
+- **Die Abrechnung ist isoliert.** Auf einem externen Abo stellt dir die ExecAI-Abrechnung NICHTS in Rechnung.
+- **`/subscriptions`** — was verbunden ist, `/disconnect <provider>` — entfernen.
+- **`/source` ohne Argument** — Quick-Picker.
+- **`/provider`** ist ein voller Alias von `/source` — nimm das Wort, das dir zuerst einfällt.
+
+---
+
+## Modelle
+
+`/model` ohne Argument — Liste der verfügbaren. `/model <id>` oder `/model <num>` — wechseln.
+
+Autovervollständigung ist bequemer:
+```
+/model<Tab>   →  Menü aller Modelle mit Filter
+/model deeps  →  Filter nach Teilstring
+```
+
+### Was im Katalog steht (nach Source)
+
+Jede Liste kommt **vom Anbieter selbst** — im Agenten ist nichts eingebaut: ein Modell, das dein Plan dazubekommt, ist am selben Tag da, ein entferntes verschwindet. Listen werden bei `/connect` geholt, einmal täglich im Hintergrund aktualisiert und für den Offline-Betrieb gespeichert.
+
+| Source | Woher die Liste kommt |
+|---|---|
+| **execai** | ~34 Modelle — Claude/GPT/DeepSeek/Kimi/MiniMax/Qwen/GLM, Katalog unseres Backends |
+| **zai**, **zai-api**, **kimi**, **kimi-api**, **anthropic**, **openai**, **openrouter** | `/models` des Anbieters mit deinem Key — mit den Modellnamen des Anbieters |
+| **claude-cli** | `claude` selbst (Modelle deines Plans und deiner CLI-Version) |
+| **codex-cli** | `codex app-server` (Modelle deines ChatGPT-Plans) |
+| **ollama** | `/api/tags` — was der lokale Runner geladen hat oder was dein ollama.com-Konto ausführen kann |
+| **custom** | `/models` des Servers plus die Modelle, die du angegeben hast |
+
+Nicht-Chat-Einträge (Embeddings, Sprache, Bilder, Moderation) werden herausgefiltert. Eine Quelle, deren Anbieter nichts listet, funktioniert trotzdem: `/model <id>`.
+
+Das primäre Modell wechselt automatisch, wenn du die Source änderst. Preise und Beschreibungen leben in `/model`.
+
+---
+
+## Bilder und Dateien
+
+### Bilder
+
+Zieh einfach ein PNG/JPG/GIF/WEBP per **Drag & Drop** in dein Terminal-Fenster oder **tippe den Pfad in Anführungszeichen**:
+
+```
+› '/home/user/Pictures/Screenshot.png' what's in this image?
+```
+
+Der Agent wird:
+- den Pfad in deiner Nachricht finden (Leerzeichen und Nicht-ASCII-Zeichen im Dateinamen sind okay, wenn die Datei gequoted ist),
+- ihn base64-encoden,
+- ihn als `image_url` an ein Vision-Modell senden,
+- eine Beschreibung zurückbekommen.
+
+**Vision-Modelle** (die sehen können): claude-sonnet-4-6, gpt-5.5, glm-5v-turbo, glm-4.5v. Wenn du gerade ein Nicht-Vision-Modell ausgewählt hast — per `/model` umschalten.
+
+### Dateien (Text/Code)
+
+Sag einfach den Pfad — der Agent liest sie über das `Read`-Tool:
+
+```
+› take a look at internal/chat/tui.go and suggest a refactor
+```
+
+Große Dateien werden in Chunks gelesen. Wenn die KI etwas Wichtiges übersieht, frag konkreter ("read lines 100-200" oder "find function X").
+
+### Eine Datei aus der Zwischenablage anhängen
+
+Terminals können keine Bilder aus der Zwischenablage übergeben (Ctrl+V) — das ist eine Einschränkung aller TUIs. Drag & Drop von Dateien (das Terminal fügt den Pfad ein) funktioniert.
+
+---
+
+## Effort — Reasoning-Level
+
+Unterstützt auf Anthropic-kompatiblen Sources: **zai, kimi, anthropic, ollama-cloud, claude-cli**. Das Modell "denkt" zuerst intern nach und antwortet dann. Bei schweren Aufgaben liefert das drastisch bessere Ergebnisse, ist aber langsamer und frisst mehr Kontingent.
+
+### Level
+
+```
+/effort                      # Picker öffnen
+```
+
+Sechs Positionen: **off** (0) · **low** (1024) · **medium** (4096) · **high** (8192) · **xhigh** (16384) · **max** (32000) Token.
+
+Steuerung im Picker: **← →** zum Auswählen, **Enter** zum Anwenden, **Esc** zum Abbrechen.
+
+**Shift+Tab** schaltet Effort-Level durch, ohne den Picker zu öffnen (funktioniert in manchen Terminals nicht — dann auf `/effort` zurückfallen).
+
+Wird in `~/.config/execai/config.json` persistiert, sichtbar in der Statuszeile als `effort : high`.
+
+---
+
+## Loop und Autoloop — wiederholen und warten
+
+### `/loop` — ein einfacher Repeater
+
+Einen Prompt auf einem Timer laufen lassen:
+
+```
+/loop 5m check the CI build status
+```
+
+Alle 5 Minuten sendet der Agent den Prompt erneut. Nützlich zum Pollen — "warte, bis etwas passiert".
+
+```
+/loop          # aktuellen Status zeigen
+/loop stop     # stoppen
+```
+
+Die Statuszeile zeigt `🔁 loop: 5m`. Funktioniert nur, solange die TUI offen ist.
+
+### Autoloop — die KI entscheidet, wann sie aufwacht
+
+Smarter: der KI wird ein `schedule_wakeup`-Tool gegeben, und sie entscheidet selbst, wann sie zu einer Aufgabe zurückkehrt.
+
+Beispiel:
+```
+› run `npm install`, wait for it to finish, then check the logs for errors
+```
+
+Die KI:
+1. Startet `npm install` (Streaming in den Chat)
+2. Sieht, dass die Installation ~5 Minuten dauern wird
+3. Ruft `schedule_wakeup(delay_seconds=300, reason="waiting for npm install", prompt_on_wake="check logs and errors")` auf
+4. Beendet die aktuelle Antwort
+5. **5 Minuten später weckt die TUI den Agenten** mit dem Prompt "check logs and errors" auf
+6. Die KI macht dort weiter, wo sie aufgehört hat — sie sieht den kompletten Conversation-History
+
+Im UI sieht das so aus:
+```
+🌙 autoloop: wake in 5m (waiting for npm install) → prompt: "check logs and errors"
+... 5 minutes later ...
+› 🌙 [autoloop] check logs and errors
+● ...AI continues...
+```
+
+Wenn die KI entscheidet, dass die Aufgabe erledigt ist — ruft sie einfach kein `schedule_wakeup` mehr auf, und der Autoloop stoppt von allein.
+
+**Wann was nutzen:**
+- `/loop` — ein festes Intervall, du weißt schon, wie lange du warten musst
+- Autoloop — die KI findet es raus, du beschreibst nur die Aufgabe
+
+---
+
+## Neu in Version 7
+
+Die siebte Linie ist das bisher größte Update des Agenten. Vollständige Notizen (auf Englisch): [scripts/release-notes](scripts/release-notes/).
+
+- **Subagenten, parallel.** Das Modell verteilt Teilaufgaben mit dem Werkzeug `Task`: mehrere `Task`-Aufrufe in einer Antwort laufen gleichzeitig, `background: true` hält das Gespräch am Laufen, `TaskWait` sammelt die Ergebnisse. Modus `read` (nur lesende Werkzeuge, fragt nie) oder `write` (bearbeitende Werkzeuge; Berechtigungen werden bei dir erfragt, mit dem Namen des Agenten markiert), Modell `same | fast | <id>`. Wer was tut: der Block **„Agenten“** über der Eingabe, `/agents`, `/agents open N`, `/agents stop N`; dieselbe Liste im Editor-Panel und auf der Maschinenkarte auf execai.ru.
+- **Ein Sync, der aufbewahrt, was er ersetzt, Benachrichtigungen und Projektgedächtnis, das mitreist (7.21).** Bis einschließlich 7.15 konnte der Sync das Projektgedächtnis auf allen deinen Rechnern löschen, wenn auf einem von ihnen das Projekt an einen leeren oder frisch geklonten Ordner gebunden oder `.execai/` entfernt wurde — aktualisiere alle Rechner und ExecAI Studio. Jetzt wird ein Ordner ohne Dateien vom Server gefüllt und nie als Löschung gewertet; jede Datei wird nach ihrem Inhalt entschieden, nicht nach ihrem Zeitstempel, sodass Änderungen an verschiedenen Dateien auf zwei Rechnern beide erhalten bleiben; was der Server nie hatte, bleibt als Kopie erhalten, und der Agent sagt es dir; ersetzte Versionen bleiben 30 Tage auf diesem Rechner; die Meldungen des Syncs erscheinen auch im Editor-Panel — [Anleitung](docs/en/sync.md). Während du in einem anderen Fenster bist, meldet der Agent, dass ein Zug fertig ist oder dass er auf deine Freigabe oder Antwort wartet: eine Desktop-Benachrichtigung, die des Terminals selbst (funktioniert auch über SSH) und die Glocke; `/notifications system|bell|off|test`. Im Editor-Panel ersetzt eine Desktop-Benachrichtigung die im Editor, solange das Fenster im Hintergrund ist. Das Projektgedächtnis liegt jetzt in `.execai/EXECAI.md`, dem Ordner, den der Sync überträgt, und erreicht so deine anderen Rechner; eine `EXECAI.md` im Wurzelverzeichnis wird weiter als Projektanweisung gelesen, `/project memory` kopiert sie. Eine Aufgabe aus dem Web läuft nur in dem Ordner, den dieser Rechner an das Projekt gebunden hat. Das Editor-Panel folgt durchgehend der Oberflächensprache.
+- **Erste Schritte, die Maschinenkarte und der Telefon-Link (7.15).** Der erste Start zeigt fünf Schritte mit Häkchen: anmelden, Modelle verbinden, Sync einschalten, Ordner an ein Projekt binden, vom Telefon aufrufen; `/start` zeigt sie erneut. `/machine` ist die Karte dieses Rechners: Version, Tarif, welche Modellquellen antworten, was der Sync überträgt, ob das Web ihn erreicht (`/machine check` fragt jede Quelle neu ab). `/phone` zeichnet einen QR-Code: das Telefon öffnet den Web-Chat, in dem Aufgaben an diese Maschine gehen. Das Editor-Panel und `execai ui` zeigen dasselbe als **Erste Schritte** und **Meine Maschine**. Behoben: die Startzeilen des Terminals, einschließlich der Anmeldeaufforderung, wurden im Standardmodus nicht ausgegeben.
+- **Schritte der Subagenten sichtbar und verlängerbar (7.8).** Standardmäßig 50 Schritte, bis zu 100 zum Start; „Schritt 12/50 · noch 38“ im Agenten-Block und im Panel. Mehr Schritte unterwegs: **+25** im Panel, `/agents more N [Schritte]` oder das Modell selbst mit `TaskExtend`; ein Subagent am Limit lässt sich dort fortsetzen, wo er aufgehört hat. Standard für neue: `/agents limit N` oder das Panel-Menü. Kein Abbruch nach fünf Minuten mehr: nur ein Sicherheitslimit von 2 Stunden gegen einen hängenden Lauf (`EXECAI_SUBAGENT_TIMEOUT`, `0` — keins).
+- **Aufgaben von der Website landen im Editor-Panel.** Ein VS-Code- / ExecAI-Studio-Fenster mit geöffnetem Projekt nimmt Aufgaben aus dem Web-Chat oder vom Telefon selbst an: die Aufgabe öffnet sich als Chat mit der Markierung „von der Website“, eine Berechtigungsfrage erreicht Panel und Website. Projekt im Panel-Menü binden. Pläne Work und Max.
+- **Das Panel in einem eigenen Fenster — `execai ui`.** Dasselbe Panel ohne Editor: ein Fenster ohne Tabs und Adressleiste oder, ohne passenden Browser, ein Tab mit einem Einmal-Link auf 127.0.0.1. Drei Designs — Workbench, Conversation, Teletype — jeweils hell und dunkel, dazu Tasten für die Antworten auf Berechtigungsanfragen — [Anleitung](docs/en/ui.md).
+- **Sync mit Passphrase — `execai sync on`.** Gedächtnis, Einstellungen und Anbieter-Schlüssel werden auf deinen Rechnern mit einer Sync-Passphrase verschlüsselt; der Server speichert nur Chiffretext und kann ihn nicht lesen. Projekte synchronisieren sich pro Projekt: `/project publish` macht aus einem Ordner ein Web-Projekt, `/project bind` entpackt ein Web-Projekt in einen Ordner. Pläne Work und Max; `execai sync keys export|import` überträgt Anbieter-Schlüssel direkt, ohne Server und ohne Plan — [Anleitung](docs/en/sync.md).
+- **Umzug von einem anderen Agenten.** `CLAUDE.md`, `.cursorrules`, `AGENTS.md`, `.windsurfrules`, `GEMINI.md`, `copilot-instructions.md` werden ins Gedächtnis übernommen: `/memory import`, `execai import --dry-run` — [Anleitung](docs/en/migrate.md).
+- **ExecAI-Modelle per Plan, eigene Schlüssel ohne.** `/plan` zeigt den Plan; die Quellen `zai|kimi|openai|anthropic|openrouter|custom|claude-cli|codex-cli|ollama` funktionieren ohne Konto.
+
+---
+
+## Im Editor — VS Code, Cursor, ExecAI Studio
+
+Derselbe Agent läuft in der [VS-Code-/Cursor-Erweiterung](https://marketplace.visualstudio.com/items?itemName=execai.execai) und in [ExecAI Studio](https://github.com/execai/execai-studio). Seit R6.8x ist das Panel mehrchat-fähig:
+
+- **Chats laufen parallel.** Jeder Chat ist eine eigene Sitzung mit eigener Historie und eigenen Berechtigungen. Der Tab-Wechsel während einer Antwort ist sofort — der Stream läuft im Hintergrund weiter, beim Zurückkommen spielt das Panel den Zug von Anfang an ab. Bis zu 3 Züge gleichzeitig (`EXECAI_IDE_PARALLEL`); die übrigen warten auf einen Slot und sagen das auch.
+- **Tab-Badges.** Pulsierender Punkt — der Agent arbeitet dort; grüner Punkt — fertig, noch nicht angesehen; `?` — wartet auf deine Antwort (Berechtigung oder AskUser-Frage); ⏰ — ein Aufwachen ist geplant. Ein Chat, der fertig wird oder fragt, während du woanders bist, zeigt zusätzlich einen Toast mit **Öffnen**.
+- **Aufwachen funktioniert auch im Editor.** Ruft das Modell `schedule_wakeup` auf, zeigt der Chat «wacht um 14:05 auf — Grund» mit **Jetzt** / **Abbrechen**, der Tab bekommt ⏰. Das Aufwachen wird mit dem Chat gespeichert: Editor schließen und wieder öffnen — ein überfälliges feuert sofort, ein künftiges bekommt seinen Timer zurück.
+- **`wait` statt Versprechen.** Das Modell darf nie «ich prüfe in fünf Minuten» schreiben: Es ruft `wait` (kurze Wartezeiten im Zug, optional mit Befehls-Polling) oder `schedule_wakeup` (lange Wartezeiten, der Chat wird freigegeben).
+- **In einem eigenen Fenster oder im Browser — `execai ui`.** Dasselbe Panel auf 127.0.0.1, ohne Editor. `execai ui` im Projektverzeichnis öffnet es als Fenster ohne Tabs und Adressleiste, wenn Google Chrome, Chromium, Microsoft Edge, Yandex Browser, Brave oder Vivaldi installiert ist; gibt es keinen solchen Browser oder ließ sich das Fenster nicht öffnen, als Tab des Standardbrowsers mit einem Einmal-Link. Das Schließen des Fensters oder Strg+C beendet das Panel; ein zweiter Start im selben Ordner zeigt das bereits geöffnete Fenster. Schalter: `--window` — nur ein Fenster, `--browser` — immer ein Tab, `--no-open` — nur die Adresse ausgeben. Aus einem anderen Terminal beenden: `execai ui --stop`, die Panels aller Ordner: `--stop --all`. Eine Startverknüpfung: `execai ui --install-shortcut` (`--remove-shortcut` entfernt sie). In Safari entsteht das Fenster über „Ablage → Zum Dock hinzufügen“, die Anmeldung dort erfolgt mit dem Einmalcode aus `execai ui --code` — [Anleitung](docs/en/ui.md).
+
+---
+
+## Agent-Memory
+
+Der Agent merkt sich Fakten über Sessions hinweg — wie Claude Code, nur einfacher. Sie werden automatisch in den System-Prompt geladen (nur der Index, nicht alles auf einmal) — der Kontext bleibt leichtgewichtig.
+
+Memory, Einstellungen, Berechtigungen und Provider-Schlüssel lassen sich auf allen deinen Computern gleich halten, verschlüsselt mit deinem Sync-Passwort (Tarife «Work» und «Max»): `/sync on` — [Anleitung](docs/en/sync.md).
+
+### Wo was hingeht
+
+**User-Memory** (projektübergreifende, persönliche Fakten über dich):
+```
+~/.config/execai/memory/
+├── MEMORY.md              ← Index (immer im System-Prompt)
+├── user_role.md           ← 1 Datei pro Fakt
+├── feedback_style.md
+├── project_alpha.md
+└── reference_jenkins.md
+```
+
+Jede Datei — Frontmatter + kurzer Body:
+```markdown
+---
+name: user-role
+description: senior Go engineer, live in EU
+metadata:
+  type: user
+---
+
+- Write in Go, less often Python
+- Prefer bubbletea for TUI
+- Don't use sudo unless absolutely necessary
+```
+
+In `MEMORY.md` — eine Zeile, die auf die Datei verweist:
+```
+- [🎯 My stack](user_role.md) — Go, bubbletea, EU timezone
+```
+
+**Project-Memory** (spezifisch für dieses Repo):
+```
+<CWD>/.execai/EXECAI.md    ← eine einzige Datei; wandert mit dem Projekt auf deine anderen Computer (Sync)
+<CWD>/EXECAI.md            ← Projektanweisungen (oft in git): in jedem Zug gelesen, beschrieben nur auf deine Bitte
+```
+
+Ältere Versionen führten das Projekt-Memory in der `EXECAI.md` im Stammverzeichnis. Sie wird weiter gelesen, aber zwischen Computern wandert nur `.execai/`; `/project memory` kopiert sie dorthin (die Datei im Stammverzeichnis bleibt, derselbe Text wird einmal gelesen).
+
+### 4 Eintragstypen
+
+| Typ | Was | Beispiel |
+|---|---|---|
+| **user** | Rolle, Skills, Präferenzen | "Write in Go, tech lead" |
+| **feedback** | Wie du sein Verhalten willst | "Don't do long summaries. Why: I don't read them" |
+| **project** | Initiativen, Deadlines, Entscheidungen | "R5 — new branch for subscriptions, deadline Q3" |
+| **reference** | Zeiger auf externe Systeme | "Jenkins: jenkins.mycompany.com, Grafana dashboards" |
+
+### Wie du es nutzt
+
+Sag dem Chat einfach, was er sich merken soll:
+```
+› remember that I write in Go and prefer bubbletea
+```
+Das Modell erstellt `user_role.md` (oder aktualisiert die vorhandene) + fügt eine Zeile zu `MEMORY.md` hinzu.
+
+```
+› project R5 — new branch for subscriptions/GUI, don't merge into R4
+```
+Erstellt `project_r5.md` im User-Memory. Wenn der Fakt zu DIESEM Repo gehört — aktualisiert `.execai/EXECAI.md` im CWD.
+
+Das Modell füllt das Memory NICHT mit episodischen Fakten zu ("today I fixed a bug" — das gehört ins git log). Es schreibt nur Dauerhaftes rein.
+
+Funktioniert über **alle Sources** — der System-Prompt ist derselbe.
+
+### Im Gedächtnis suchen — zuerst im eigenen, dann bei anderen Agenten
+
+```
+› /memory find Preise
+```
+
+Sucht im eigenen Gedächtnis des Agenten. Ist dort nichts, schaut er in das
+Gedächtnis anderer Agenten auf diesem Rechner — den Projektordner von Claude
+Code (`~/.claude/projects/<Projekt>/memory/`), den globalen und `CLAUDE.md` —
+und **bietet an, die Funde zu übernehmen**. Nichts wird stillschweigend
+kopiert: finden und übernehmen sind zweierlei, und Letzteres entscheidest du.
+
+---
+
+## Projekte und Hintergrundmodus — Web → Agent
+
+*Ab v6.17. Die Web-Seite braucht das Tool «Agenten» im Projektkatalog auf execai.ru — es wird schrittweise freigeschaltet.*
+
+Dein Rechner kann **ein Tool innerhalb eines Web-Chat-Projekts** sein: Verzeichnis einmal an ein Projekt binden, den Hintergrund-Listener starten — und im Browser das Modell bitten, Dinge auf deinem Rechner zu erledigen. Das Modell ruft den Agenten wie jedes andere Projekt-Tool (ssh, git) auf, die Aufgabe läuft **im Projektverzeichnis**, die Antwort kommt zurück in den Chat.
+
+### Verzeichnis binden
+
+```
+/project              # deine Projekte; ● — an dieses Verzeichnis gebunden
+/project bind <Name>  # aktuelles Verzeichnis binden + diesen Rechner zum Projekt hinzufügen
+/project on|off       # derselbe Schalter wie in der Projektkarte im Web
+/project unbind       # Bindung lösen und den Rechner aus dem Projekt entfernen
+/project memory       # die EXECAI.md aus dem Stammverzeichnis nach .execai/ kopieren, damit sie mit dem Projekt wandert
+```
+
+Die Bindung tut zwei Dinge: merkt sich „dieses Verzeichnis auf diesem Rechner = jenes Projekt" und legt im Projekt einen normalen Tool-Eintrag an — wie ein ssh-Profil —, sodass der Rechner in der Projektkarte mit An/Aus-Schalter erscheint. Die Oberfläche zeigt Aliasse; die stabile Rechner-id überlebt ein erneutes Login.
+
+### `execai serve` — der Hintergrund-Listener
+
+```
+execai serve
+```
+
+Lauscht auf Aufgaben aus dem Web-Chat und führt sie aus. Was zählt:
+
+- Eine Aufgabe läuft **im Verzeichnis, das an ihr Projekt gebunden ist**, nicht dort, wo `serve` gestartet wurde. Verzeichnis weg → klarer Fehler statt Ausführung am falschen Ort.
+- **Erlaubt ist, was in deiner `permissions.json` steht** (was du in der TUI mit „FÜR IMMER" bestätigt hast). Leere Datei → alles erlaubt, mit deutlicher Warnung beim Start.
+- **Alles andere erfragt der Agent direkt im Web-Chat** *(ab v6.33)*: während der Aufgabe erscheint eine Frage mit genau dem Kommando, das der Agent ausführen will, und denselben Optionen wie in der TUI — „Einmal", „Das ganze Tool in dieser Aufgabe", „Dieses Kommando in dieser Aufgabe", „FÜR IMMER", „Ablehnen". „FÜR IMMER" wird in die `permissions.json` der Maschine geschrieben. Keine Antwort in ~2 Minuten (oder Tab zu) → der Agent bekommt eine Ablehnung: Schweigen erweitert niemals Rechte.
+- `--read-only` — Nur-Lesen-Modus: keine Dateiänderungen, keine Kommandos.
+- Jeder Tool-Aufruf landet im **Audit-Log** `~/.config/execai/serve-audit.log` (Rotation bei 8 MB) — man sieht, was der Agent nachts getan hat.
+- Ein Daemon pro Rechner (pid-lock). `execai serve --status` zeigt pid/Laufzeit/Endpoint; `--stop` stoppt sanft (lässt die aktuelle Aufgabe fertig werden); `--stop --force` killt nach 5 s — das Ergebnis der aktuellen Aufgabe geht verloren, der Chat sieht einen Timeout.
+- Agent offline → der Chat bekommt in ~12 s ein ehrliches „Agent antwortet nicht"; die Aufgabe bleibt in der Queue und läuft, sobald `serve` startet. Zustellung wird bestätigt (ack) — eine in eine tote Verbindung gereichte Aufgabe geht nicht verloren.
+- Terminal zu — Prozess tot. Damit er überlebt:
+  `setsid nohup execai serve > ~/.execai-serve.log 2>&1 &`
+
+In diesem Modus ist AskUser deaktiviert (die Rückfragen des Modells; Berechtigungsfragen — siehe oben — kommen in den Web-Chat), das Iterationslimit ist niedriger (30 pro Aufgabe).
+
+---
+
+## Ausgaben / `/usage`
+
+```
+/usage
+```
+
+Zeigt Verschiedenes, je nach aktiver `/source`:
+
+**ExecAI (Standard):** dein Plan + Guthaben + 4 Rate-Limit-Fenster (5h/Tag/Woche/Monat) mit Fortschrittsbalken + die letzten 14 Iterationen (Modell, Token, Preis in ₽).
+
+**Kimi Code (`/source kimi`):** echtes Kontingent aus `api.kimi.com/coding/v1/usages` — Plan nach verfügbaren Modellen, Wochenlimit mit Reset-Zeit, rolling windows (5h etc.).
+
+**Moonshot Platform (`/source kimi-api`), OpenAI (`/source openai`), Anthropic, Z.ai:** lokale Token-Zähler + Link zum Dashboard des Providers (die echte Abrechnung lebt dort).
+
+---
+
+## Befehle und Hotkeys
+
+### Slash-Befehle
+
+| Befehl | Was er macht |
+|---|---|
+| `/help` | Alle Befehle |
+| `/start` | Erste Schritte: fünf Schritte, jeweils als erledigt markiert oder nicht (erscheinen beim ersten Start) |
+| `/machine [check]` | Die Karte „Meine Maschine“: OS, Version, Anmeldung, Plan, Modellquellen, Sync, ob sie Aufgaben aus dem Web annimmt; `check` — die Quellen neu prüfen |
+| `/phone` | QR-Code und Link: der Web-Chat auf dem Handy, mit dieser Maschine für Aufgaben gewählt |
+| `/model [id]` | Modell wechseln |
+| `/source [name]` | Source wechseln (execai/zai/kimi/kimi-api/anthropic/openai/claude-cli/codex-cli/ollama) |
+| `/provider [name]` | Voller Alias von `/source` — gleiches Menü, gleicher Wechsel |
+| `/connect <provider> [args...]` | Ein Abo verbinden. Ohne Args — Hilfe |
+| `/disconnect <provider>` | Ein Abo trennen |
+| `/subscriptions` (oder `/subs`) | Verbindungen auflisten |
+| `/usage` | Plan + Ausgaben (Source-spezifisch) |
+| `/effort` | Picker für Reasoning-Level (für Anthropic-kompatible Sources) |
+| `/max-iterations [N]` | Limit für tool-use-Iterationen pro Turn. Ohne Arg wird der aktuelle Wert gezeigt (Standard 40). Bei Überschreitung — sanfter Stopp |
+| `/paste` | Liste der Pastes (Ctrl+V großer Blöcke) — [Pasted #N — L lines, C chars] |
+| `/paste show <N>` | Inhalt von Paste #N |
+| `/project [bind <Name>\|on\|off\|unbind]` | Verzeichnis an ein Web-Chat-Projekt binden; on/off — Projektschalter (ab v6.17) |
+| `/loop <interval> <prompt>` | Loop mit festem Timer |
+| `/loop stop` | Stoppen |
+| `/log` | Letzte 20 LLM-Requests (welches Modell tatsächlich geantwortet hat) |
+| `/new` | Neue Conversation (die aktuelle wird gespeichert) |
+| `/sessions` | Liste der Conversations |
+| `/resume <num\|id>` | Eine gespeicherte Conversation öffnen |
+| `/compact` | History per LLM in eine Zusammenfassung verdichten (für lange Conversations) |
+| `/autocompact [N\|off]` | Schwelle der Auto-Kompaktierung: die History wird bei N% des Kontextfensters automatisch verdichtet (Standard 80) |
+| `/cd <path>` | Working Directory wechseln |
+| `/clear` | History leeren (Ctrl+L) |
+| `/whoami` | Wer eingeloggt ist |
+| `/config` | Konfiguration zeigen |
+| `/permissions` | Persistente Tool-Berechtigungen |
+| `/notifications [system\|bell\|off\|test]` | Melden, wenn ein Zug endet oder der Agent auf dich wartet, während du in einem anderen Fenster bist: Desktop-Benachrichtigung und Glocke (`system`, Standard), nur das Terminal (`bell`) oder nichts. Bleibt auf diesem Computer — [Anleitung](docs/en/notifications.md) |
+| `/classic on\|off` | Klassische TUI (alt-screen+Maus) statt Ink-style umschalten. Erfordert Neustart |
+| `/mouse on\|off` | Maus-Capture (nur in klassischer TUI relevant) |
+| `/login` | Neu einloggen |
+| `/logout` | Ausloggen |
+| `/quit` | Beenden (Ctrl+D) |
+
+> Tipp: tippe `/` und das Autovervollständigungs-Menü zeigt jeden Befehl. Bei Befehlen **ohne Argumente** führt die Auswahl aus dem Menü sofort aus (ein Enter). Befehle, die ein Space-getrenntes Argument nehmen (`/model `, `/source `, `/cd `), warten auf Eingabe.
+
+### Hotkeys
+
+| Taste | Aktion |
+|---|---|
+| **Enter** | Senden |
+| **Shift+Enter** | Neue Zeile (mehrzeilig) |
+| **↑ / ↓** | Verlauf deiner vorherigen Eingaben (wie in bash) |
+| **Tab** | Autovervollständigungs-Vorschlag annehmen |
+| **Shift+Tab** | Effort-Level durchschalten (oder den Picker öffnen) |
+| **PgUp / PgDn** | Chat scrollen |
+| **Ctrl+R** | Fuzzy-Suche über Sessions |
+| **Ctrl+C** | Stream abbrechen (oder zweimal zum Beenden) |
+| **Ctrl+D** | Beenden (zweimal zum Bestätigen) |
+| **Ctrl+L** | History leeren |
+| **Shift+drag** | Text auswählen (wenn die Maus gecaptured ist — `/mouse off`, um normal auszuwählen) |
+| **Mausrad** | Viewport scrollen |
+
+---
+
+## Sessions und Verlauf
+
+Jede Conversation wird nach jedem Austausch automatisch nach `~/.config/execai/sessions/<uuid>.json` gespeichert. Beim Neustart:
+- Wenn im selben Ordner eine Conversation jünger als 24h war — wird sie fortgesetzt
+- Ansonsten startet eine neue
+
+`/sessions` — Liste aller Conversations. `/resume 3` — die dritte öffnen. `/resume <id>` — per ID.
+
+`Ctrl+R` — Fuzzy-Suche: tipp irgendein Wort → sie sucht sowohl in Titeln ALS AUCH in den Inhalten jeder Conversation.
+
+`/compact` — wenn eine Conversation zu lang wird und der Kontext überläuft, komprimiert der Agent den älteren Teil in eine einzige Zusammenfassung und behält die letzten 6 Turns.
+
+**Auto-Kompaktierung** übernimmt das automatisch: der Agent verfolgt den Füllstand des Kontextfensters (exakte Provider-Usage wo verfügbar, sonst eine konservative Schätzung; die Anzeige `ctx: NN%` in der Statusleiste zeigt den aktuellen Stand) und verdichtet die History automatisch beim Überschreiten der Schwelle — standardmäßig 80%. Einstellen: `/autocompact 90`, abschalten: `/autocompact off`. Der Schnitt trennt niemals einen Tool-Aufruf von seinem Ergebnis, die letzten 6 Nachrichten bleiben immer erhalten. Funktioniert auch im Editor-Panel (VS Code / Cursor / ExecAI Studio).
+
+Der Eingabe-Verlauf (`↑/↓`) wird ebenfalls in `~/.config/execai/input_history` gespeichert — er überlebt Neustarts.
+
+---
+
+## Wo die Dateien liegen
+
+| OS | Pfad |
+|---|---|
+| Linux   | `~/.config/execai/` |
+| macOS   | `~/Library/Application Support/execai/` |
+| Windows | `%APPDATA%\execai\` |
+
+| Datei | Was |
+|---|---|
+| `config.json` | api_base, selected_model_id, thinking_budget (effort) |
+| `credentials.json` | JWT (Modus 0600) |
+| `host_id` | Stabile machine-id (nur wenn /etc/machine-id etc. nicht verfügbar sind — Fallback) |
+| `subscriptions.json` | Verbundene Abos (Keys im Klartext — sicher aufbewahren) |
+| `permissions.json` | Persistente Tool-Allow-List |
+| `sessions/<uuid>.json` | History jeder Conversation |
+| `memory/MEMORY.md` | Index des User-Memory (siehe [Memory](#agent-memory)) |
+| `memory/*.md` | Einzelne Fakten (user/feedback/project/reference) |
+| `input_history` | Letzte 200 deiner Eingaben |
+| `requests.log` | LLM-Request-Log (für `/log`) |
+| `auth-poll.log` | Device-Flow-Login-Diagnostik (zum Debuggen) |
+| `models_cache.json` | Cache des Modell-Katalogs — wird genutzt, wenn das Netzwerk down ist, damit execai trotzdem offline startet |
+| `installed_arch_sha` | Architektur-SHA für den Auto-Update-Check |
+| `last_remote_sha` | Stempel für Versionsvergleich |
+
+### Memory — siehe eigener Abschnitt
+
+[Agent-Memory](#agent-memory) — User- + Project-Struktur, wird bei jeder Session automatisch in den System-Prompt geladen.
+
+---
+
+## Troubleshooting
+
+**`execai: command not found`** nach der Installation:
+- In der aktuellen Session: `exec bash -l` oder ein neues Terminal öffnen
+- Oder manuell: `export PATH="$HOME/.local/bin:$PATH"`
+
+**"zai subscription is not connected"** bei `/source zai`:
+- Zuerst `/connect zai <key>`. Wo du den Key herbekommst — siehe Abschnitt [Sources](#sources--execai-und-abonnements)
+
+**429 "Insufficient balance"** bei Z.ai:
+- Du nutzt einen normalen API-Key, keinen Coding-Plan-Key. Hol dir einen echten Coding-Plan: https://z.ai/manage-apikey/apikey-list (Bereich Individual Coding Plan)
+
+**404 "Not found"** während des Chats (ExecAI):
+- Das Gateway kennt den Endpoint eventuell nicht. Melde es an die Entwickler — aicore-vbai muss möglicherweise neu deployed werden.
+
+**TUI öffnet sich nicht, leerer Bildschirm**:
+- Unter Windows das **Windows Terminal** nutzen, nicht den alten conhost. Unter Linux — irgendein modernes (gnome-terminal, kitty, alacritty).
+- Defender: `Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\execai"` und neu installieren.
+
+**Zeichencodierung kaputt** (`Ð�escribe` statt `Describe`):
+- Alter Bug in der bubbles-Version. execai updaten: `curl -fsSL .../install.sh | bash`.
+
+**Auto-Update kommt nie an**:
+- Beim Start zeigt die Statuszeile unten `✓ execai R6.X — latest version` oder `🔔 New version available`.
+- Wenn es nicht funktioniert — `EXECAI_UPDATE_CHANNEL=R6` überschreibt den Channel.
+
+**Bilder werden nicht gesendet**, obwohl der Pfad da ist:
+- Prüfe, ob der Pfad in Anführungszeichen steht (einfach oder doppelt), falls er Leerzeichen oder Nicht-ASCII enthält: `'/path/to/Screenshot.png'`
+- Oder unquoted, wenn der Pfad keine Leerzeichen hat: `/path/to/foo.png`
+- Wenn die KI weiterhin "no image" sagt — prüfe das Modell, es muss ein Vision-Modell sein (sonnet/gpt-5/glm-5v etc.)
+
+**Request hängt**:
+- `Ctrl+C` bricht den aktuellen Request ab. Der History bleibt erhalten.
+
+**"Reached N iterations limit"** im Chat:
+- Das ist KEIN Fehler — es ist ein sanfter Stopp nach Erreichen des tool-use-Iterationslimits (Standard 40).
+- Sag einfach "continue" — der Agent nimmt eine weitere Charge derselben Größe und macht dort weiter, wo er aufgehört hat.
+- Wenn die Aufgabe autonom und groß ist — heb das Limit an: `/max-iterations 100` (Bereich 1-500).
+- Wird in `~/.config/execai/config.json` gespeichert, gilt für nachfolgende Turns.
+
+**"context deadline exceeded" / Modelle laden nicht**:
+- Seit R5.67+ startet execai IMMER, auch ohne Netzwerk.
+- Beim ersten Start holt es sich den Katalog von der API und cached ihn in `~/.config/execai/models_cache.json`.
+- Fällt das Netzwerk aus — nutzt es den Cache und zeigt `ℹ Using cached catalog`.
+- Wenn auch kein Cache da ist — greift ein eingebauter Fallback (Claude Sonnet 4.6), die TUI öffnet sich, echte Requests können scheitern, aber das Interface lebt.
+
+---
+
+## Support
+
+- Bugs/Feature-Requests: [github.com/execai/execai-agent/issues](https://github.com/execai/execai-agent/issues)
+- ExecAI-Docs: https://chat.execai.ru/
+
+---
+
+**execai** — von ExecAI/VBAI. MIT-artige Lizenz.
