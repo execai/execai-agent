@@ -1,0 +1,3 @@
+{"messages":[{"role":"user","content":"Спроси у агента: выведи только pwd одной строкой. Перескажи ответ."}],
+ "tools":[{"tool_id":"agent","alias":["0ba206a4-e546-4920-851d-b3adaa9632ca","wa10-phantom"]}],
+ "system":[{"model":"MiniMax-M3","provider":"minimax"}]}

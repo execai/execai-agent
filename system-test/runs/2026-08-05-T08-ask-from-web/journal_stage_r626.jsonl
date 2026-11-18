@@ -1,0 +1,10 @@
+=== stage R6.26 · once ===
+{"step": "wa12-once-question-visible", "verdict": "PASS", "detail": "инструмент=Bash summary=Bash: touch /tmp/wa12-allowed && echo done — Creat"}
+{"step": "wa12-once-options-shipped", "verdict": "PASS", "detail": "варианты=['once', 'session', 'exact', 'always', 'deny']"}
+{"step": "wa12-once-effect", "verdict": "PASS", "detail": "output/4.1s keepalives=0 файл=создан: \n\n</think>\n\nГотово, `done`."}
+=== stage R6.26 · deny ===
+{"step": "wa12-deny-question-visible", "verdict": "PASS", "detail": "инструмент=Bash summary=Bash: touch /tmp/wa12-denied && echo done — Create"}
+{"step": "wa12-deny-options-shipped", "verdict": "PASS", "detail": "варианты=['once', 'session', 'exact', 'always', 'deny']"}
+{"step": "wa12-deny-effect", "verdict": "PASS", "detail": "output/5.1s keepalives=1 файл=нет: \n\n</think>Пользователь отклонил выполнение команды `touch /tmp/wa12-denied && echo done`. "}
+{"step": "wa13-exact-one-question-covers-repeat", "verdict": "FAIL", "detail": "вопросов=0 файл=нет http/0.0s"}
+{"step": "wa13-exact-one-question-covers-repeat", "verdict": "PASS", "detail": "вопросов=1 файл=создан output/8.6s"}
